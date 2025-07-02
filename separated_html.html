@@ -1,0 +1,1108 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>사출계획 약품/잉크 종류 계산기</title>
+    
+    <!-- 외부 라이브러리 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    
+    <!-- CSS 파일 링크 -->
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- 헤더 -->
+        <div class="header">
+            <h1>🧪 사출계획 약품/잉크 종류 계산기</h1>
+            <p>사출계획과 BOM 파일을 업로드하여 일자별 필요한 약품/잉크 종류를 확인하세요</p>
+        </div>
+        
+        <!-- 파일 업로드 섹션 -->
+        <div class="upload-section">
+            <div class="file-upload">
+                <div class="upload-box" id="injection-upload">
+                    <input type="file" id="injection-file" accept=".xlsx,.xls">
+                    <label for="injection-file">
+                        📅 사출계획 파일 업로드<br>
+                        <small>(예: 06월 5주차 사출계획_250630.xlsx)</small>
+                    </label>
+                </div>
+                
+                <div class="upload-box" id="bom-upload">
+                    <input type="file" id="bom-file" accept=".xlsx,.xls">
+                    <label for="bom-file">
+                        🔧 BOM Tree 파일 업로드<br>
+                        <small>(예: bom_tree.xlsx)</small>
+                    </label>
+                </div>
+            </div>
+            
+            <button class="calculate-btn" id="calculate-btn" disabled>
+                🧮 약품/잉크 종류 계산하기
+            </button>
+            
+            <!-- 경고 섹션 -->
+            <div class="warning-section" id="warning-section">
+                <h3>⚠️ BOM에서 찾을 수 없는 제품들</h3>
+                <p>다음 제품들은 BOM Tree에 추가해야 합니다:</p>
+                <div class="unmatched-list" id="unmatched-list"></div>
+            </div>
+            
+            <!-- 매칭 섹션 -->
+            <div class="matching-section" id="matching-section">
+                <h3>🔗 제품명 매칭</h3>
+                <div class="progress-info" id="progress-info"></div>
+                <div id="matching-container"></div>
+                <div class="match-controls">
+                    <button class="skip-btn" id="skip-all-btn">모두 건너뛰기</button>
+                    <button class="confirm-btn" id="save-matches-btn">매칭 저장하고 계속</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 결과 표시 섹션 -->
+        <div class="results-section" id="results">
+            <div class="controls-row">
+                <div class="date-tabs" id="date-tabs"></div>
+                <button class="download-btn" id="download-btn">
+                    📥 잉크 목록 엑셀 다운로드
+                </button>
+            </div>
+            
+            <div class="day-summary" id="day-summary">
+                <h3 id="selected-date">날짜를 선택하세요</h3>
+                <div class="summary-stats">
+                    <div class="stat-item">
+                        <div class="stat-number" id="day-products">0</div>
+                        <div class="stat-label">제품 종류</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number" id="day-chemicals">0</div>
+                        <div class="stat-label">약품 종류</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number" id="day-inks">0</div>
+                        <div class="stat-label">잉크 종류</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="materials-grid">
+                <div class="material-section">
+                    <h3>💊 필요한 약품<span class="multiplier-note">(×3 적용)</span></h3>
+                    <div class="material-list" id="chemicals-list"></div>
+                </div>
+                
+                <div class="material-section">
+                    <h3>🎨 필요한 잉크<span class="multiplier-note">(×2 적용)</span></h3>
+                    <div class="material-list" id="inks-list"></div>
+                </div>
+            </div>
+            
+            <div class="weekly-summary">
+                <h3>📊 주간 전체 요약</h3>
+                <div class="weekly-grid">
+                    <div class="weekly-item">
+                        <h4>💊 약품 (총 <span id="total-chemicals">0</span>종)</h4>
+                        <div class="top-materials" id="weekly-chemicals"></div>
+                    </div>
+                    <div class="weekly-item">
+                        <h4>🎨 잉크 (총 <span id="total-inks">0</span>종)</h4>
+                        <div class="top-materials" id="weekly-inks"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        /* ============================================================================
+           전역 변수 및 상수 정의
+           ============================================================================ */
+        
+        // 애플리케이션 상태 변수
+        let injectionData = null;
+        let bomData = null;
+        let calculatedResults = null;
+        let selectedDate = null;
+        
+        // 제품 매칭 관련 변수
+        let unmatchedProducts = [];
+        let productMatches = {};
+        let pendingMatches = {};
+        let currentMatchingProducts = [];
+        let matchingIndex = 0;
+        
+        // 날짜 컬럼 설정
+        const DATE_COLUMNS = [
+            {index: 1, date: '2025-06-29'},
+            {index: 3, date: '2025-06-29'},
+            {index: 5, date: '2025-06-30'},
+            {index: 7, date: '2025-07-01'},
+            {index: 9, date: '2025-07-02'},
+            {index: 11, date: '2025-07-03'},
+            {index: 13, date: '2025-07-04'},
+            {index: 15, date: '2025-07-05'},
+            {index: 17, date: '2025-07-06'}
+        ];
+        
+        // 배수 설정
+        const MULTIPLIERS = {
+            CHEMICAL: 3,
+            INK: 2
+        };
+
+        /* ============================================================================
+           초기화 및 이벤트 리스너 설정
+           ============================================================================ */
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeApp();
+        });
+        
+        function initializeApp() {
+            setupEventListeners();
+            loadSavedMatches();
+            console.log('사출계획 계산기 초기화 완료');
+        }
+        
+        function setupEventListeners() {
+            document.getElementById('injection-file').addEventListener('change', function(e) {
+                handleFileUpload(e, 'injection');
+            });
+            
+            document.getElementById('bom-file').addEventListener('change', function(e) {
+                handleFileUpload(e, 'bom');
+            });
+            
+            document.getElementById('calculate-btn').addEventListener('click', calculateMaterials);
+            document.getElementById('download-btn').addEventListener('click', downloadInkList);
+            document.getElementById('skip-all-btn').addEventListener('click', skipAllMatches);
+            document.getElementById('save-matches-btn').addEventListener('click', saveMatchesAndContinue);
+        }
+
+        /* ============================================================================
+           파일 업로드 및 처리
+           ============================================================================ */
+        
+        function handleFileUpload(event, type) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const workbook = XLSX.read(e.target.result, {type: 'binary'});
+                    processUploadedFile(workbook, type, file.name);
+                } catch (error) {
+                    showError(`파일 읽기 오류: ${error.message}`);
+                }
+            };
+            reader.readAsBinaryString(file);
+        }
+        
+        function processUploadedFile(workbook, type, fileName) {
+            if (type === 'injection') {
+                injectionData = workbook;
+                updateUploadStatus('injection', fileName);
+            } else if (type === 'bom') {
+                bomData = workbook;
+                updateUploadStatus('bom', fileName);
+            }
+
+            if (injectionData && bomData) {
+                document.getElementById('calculate-btn').disabled = false;
+            }
+        }
+        
+        function updateUploadStatus(type, fileName) {
+            const uploadBox = document.getElementById(`${type}-upload`);
+            const label = uploadBox.querySelector('label');
+            
+            uploadBox.classList.add('active');
+            label.innerHTML = `✅ ${fileName}<br><small>업로드 완료</small>`;
+        }
+
+        /* ============================================================================
+           데이터 처리 및 분석
+           ============================================================================ */
+        
+        function createBOMEntry(bomItem) {
+            return {
+                chemical: bomItem['약품명'] || '',
+                inks: extractInksFromBOM(bomItem)
+            };
+        }
+        
+        function findSimilarProducts(targetProduct, bomJsonData) {
+            const suggestions = [];
+            const targetLower = targetProduct.toLowerCase();
+            
+            bomJsonData.forEach(item => {
+                const bomProduct = item['판매명'];
+                if (!bomProduct) return;
+                
+                const bomLower = bomProduct.toLowerCase();
+                const similarity = calculateSimilarity(targetLower, bomLower);
+                
+                if (similarity > 0.3) {
+                    suggestions.push({
+                        product: bomProduct,
+                        similarity: similarity,
+                        data: item
+                    });
+                }
+            });
+
+            return suggestions.sort((a, b) => b.similarity - a.similarity).slice(0, 5);
+        }
+        
+        function calculateSimilarity(str1, str2) {
+            const words1 = str1.split(/[\s_-]+/);
+            const words2 = str2.split(/[\s_-]+/);
+            
+            let commonWords = 0;
+            words1.forEach(word1 => {
+                if (words2.some(word2 => word2.includes(word1) || word1.includes(word2))) {
+                    commonWords++;
+                }
+            });
+            
+            return commonWords / Math.max(words1.length, words2.length);
+        }
+        
+        function showMatchingInterface(unmatchedList, bomJsonData) {
+            currentMatchingProducts = unmatchedList;
+            matchingIndex = 0;
+            pendingMatches = {};
+            
+            hideWarningSection();
+            showMatchingSection();
+            
+            displayCurrentMatching(bomJsonData);
+        }
+        
+        function displayCurrentMatching(bomJsonData) {
+            if (matchingIndex >= currentMatchingProducts.length) {
+                hideMatchingSection();
+                saveMatchesAndContinue();
+                return;
+            }
+
+            const product = currentMatchingProducts[matchingIndex];
+            const suggestions = findSimilarProducts(product, bomJsonData);
+            
+            updateMatchingProgress();
+            renderMatchingUI(product, suggestions);
+        }
+        
+        function updateMatchingProgress() {
+            document.getElementById('progress-info').textContent = 
+                `진행상황: ${matchingIndex + 1} / ${currentMatchingProducts.length}`;
+        }
+        
+        function renderMatchingUI(product, suggestions) {
+            const container = document.getElementById('matching-container');
+            container.innerHTML = `
+                <div class="matching-item">
+                    <div class="product-name">📦 ${product}</div>
+                    <div>유사한 BOM 제품을 선택하거나 건너뛰세요:</div>
+                    <div class="suggestions" id="suggestions-${matchingIndex}">
+                        ${suggestions.map((sug, idx) => 
+                            `<div class="suggestion-btn" data-product="${sug.product}" data-index="${idx}">
+                                ${sug.product} (${Math.round(sug.similarity * 100)}%)
+                            </div>`
+                        ).join('')}
+                    </div>
+                    <div class="match-controls" style="margin-top: 10px;">
+                        <button class="skip-btn" onclick="skipCurrentMatch()">건너뛰기</button>
+                        <button class="confirm-btn" onclick="confirmCurrentMatch()" id="confirm-current" disabled>선택 확인</button>
+                    </div>
+                </div>
+            `;
+
+            setupSuggestionButtonEvents(container, product);
+        }
+        
+        function setupSuggestionButtonEvents(container, product) {
+            container.querySelectorAll('.suggestion-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    container.querySelectorAll('.suggestion-btn').forEach(b => b.classList.remove('selected'));
+                    this.classList.add('selected');
+                    document.getElementById('confirm-current').disabled = false;
+                    pendingMatches[product] = this.dataset.product;
+                });
+            });
+        }
+
+        /* ============================================================================
+           매칭 제어 함수들
+           ============================================================================ */
+        
+        function skipCurrentMatch() {
+            matchingIndex++;
+            const bomJsonData = bomData ? XLSX.utils.sheet_to_json(bomData.Sheets[bomData.SheetNames[0]]) : [];
+            displayCurrentMatching(bomJsonData);
+        }
+
+        function confirmCurrentMatch() {
+            const product = currentMatchingProducts[matchingIndex];
+            if (pendingMatches[product]) {
+                productMatches[product] = pendingMatches[product];
+                saveMatches();
+            }
+            matchingIndex++;
+            const bomJsonData = bomData ? XLSX.utils.sheet_to_json(bomData.Sheets[bomData.SheetNames[0]]) : [];
+            displayCurrentMatching(bomJsonData);
+        }
+
+        function skipAllMatches() {
+            hideMatchingSection();
+            displayUnmatchedProducts(currentMatchingProducts);
+            proceedWithMatched();
+        }
+
+        function saveMatchesAndContinue() {
+            saveMatches();
+            hideMatchingSection();
+            proceedWithMatched();
+        }
+
+        /* ============================================================================
+           로컬 스토리지 관리
+           ============================================================================ */
+        
+        function saveMatches() {
+            try {
+                localStorage.setItem('productMatches', JSON.stringify(productMatches));
+                console.log('매칭 정보 저장 완료:', Object.keys(productMatches).length, '개');
+            } catch (error) {
+                console.warn('매칭 정보 저장 실패:', error);
+            }
+        }
+
+        function loadSavedMatches() {
+            try {
+                const saved = localStorage.getItem('productMatches');
+                if (saved) {
+                    productMatches = JSON.parse(saved);
+                    console.log('저장된 매칭 정보 로드됨:', Object.keys(productMatches).length, '개');
+                }
+            } catch (error) {
+                console.warn('매칭 정보 로드 실패:', error);
+                productMatches = {};
+            }
+        }
+
+        /* ============================================================================
+           메인 계산 로직
+           ============================================================================ */
+        
+        function calculateMaterials() {
+            try {
+                showCalculatingState();
+
+                const injectionSheet = injectionData.Sheets[injectionData.SheetNames[0]];
+                const injectionJsonData = XLSX.utils.sheet_to_json(injectionSheet, {header: 1});
+
+                const bomSheet = bomData.Sheets[bomData.SheetNames[0]];
+                const bomJsonData = XLSX.utils.sheet_to_json(bomSheet);
+
+                const {bomMap, unmatchedList} = createBOMMapWithValidation(bomJsonData, injectionJsonData);
+                unmatchedProducts = unmatchedList;
+                
+                const {finalBomMap, stillUnmatched} = applyMatchingStrategies(bomMap, bomJsonData, unmatchedProducts);
+                
+                if (stillUnmatched.length > 0) {
+                    showMatchingInterface(stillUnmatched, bomJsonData);
+                    return;
+                } else {
+                    proceedWithCalculation(finalBomMap, injectionJsonData);
+                }
+
+            } catch (error) {
+                showError(`계산 오류: ${error.message}`);
+                resetCalculateButton();
+            }
+        }
+        
+        function proceedWithMatched() {
+            try {
+                const injectionSheet = injectionData.Sheets[injectionData.SheetNames[0]];
+                const injectionJsonData = XLSX.utils.sheet_to_json(injectionSheet, {header: 1});
+
+                const bomSheet = bomData.Sheets[bomData.SheetNames[0]];
+                const bomJsonData = XLSX.utils.sheet_to_json(bomSheet);
+
+                const {bomMap} = createBOMMapWithValidation(bomJsonData, injectionJsonData);
+                const {finalBomMap} = applyMatchingStrategies(bomMap, bomJsonData, unmatchedProducts);
+                
+                proceedWithCalculation(finalBomMap, injectionJsonData);
+            } catch (error) {
+                showError(`계산 오류: ${error.message}`);
+                resetCalculateButton();
+            }
+        }
+        
+        function proceedWithCalculation(bomMap, injectionJsonData) {
+            const dailyProduction = extractProductionPlan(injectionJsonData);
+            calculatedResults = calculateDailyMaterialTypes(dailyProduction, bomMap);
+            displayResults(calculatedResults);
+            showCalculationComplete();
+        }
+
+        /* ============================================================================
+           UI 상태 관리
+           ============================================================================ */
+        
+        function showCalculatingState() {
+            const btn = document.getElementById('calculate-btn');
+            btn.innerHTML = '⏳ 계산 중...';
+            btn.disabled = true;
+        }
+        
+        function showCalculationComplete() {
+            const btn = document.getElementById('calculate-btn');
+            btn.innerHTML = '✅ 계산 완료';
+            document.getElementById('results').classList.add('show');
+        }
+        
+        function resetCalculateButton() {
+            const btn = document.getElementById('calculate-btn');
+            btn.innerHTML = '🧮 약품/잉크 종류 계산하기';
+            btn.disabled = false;
+        }
+        
+        function hideWarningSection() {
+            document.getElementById('warning-section').classList.remove('show');
+        }
+        
+        function showMatchingSection() {
+            document.getElementById('matching-section').classList.add('show');
+        }
+        
+        function hideMatchingSection() {
+            document.getElementById('matching-section').classList.remove('show');
+        }
+        
+        function displayUnmatchedProducts(unmatchedList) {
+            const warningSection = document.getElementById('warning-section');
+            const unmatchedListContainer = document.getElementById('unmatched-list');
+            
+            unmatchedListContainer.innerHTML = '';
+            unmatchedList.forEach((product, index) => {
+                const item = document.createElement('div');
+                item.className = 'unmatched-item';
+                item.textContent = `${index + 1}. ${product}`;
+                unmatchedListContainer.appendChild(item);
+            });
+            
+            warningSection.classList.add('show');
+        }
+
+        /* ============================================================================
+           결과 표시 및 UI 업데이트
+           ============================================================================ */
+        
+        function displayResults(results) {
+            const dates = Object.keys(results).sort();
+            createDateTabs(dates);
+
+            if (dates.length > 0) {
+                selectDateTab(dates[0]);
+            }
+
+            displayWeeklySummary(results);
+        }
+        
+        function createDateTabs(dates) {
+            const dateTabsContainer = document.getElementById('date-tabs');
+            dateTabsContainer.innerHTML = '';
+            
+            dates.forEach((date, index) => {
+                const tab = createDateTab(date, index === 0);
+                dateTabsContainer.appendChild(tab);
+            });
+        }
+        
+        function createDateTab(date, isActive) {
+            const tab = document.createElement('div');
+            tab.className = 'date-tab';
+            if (isActive) {
+                tab.classList.add('active');
+                selectedDate = date;
+            }
+            
+            tab.textContent = formatDateForTab(date);
+            tab.addEventListener('click', () => selectDate(date, tab));
+            
+            return tab;
+        }
+        
+        function formatDateForTab(date) {
+            const dateObj = new Date(date);
+            const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+            const dayName = dayNames[dateObj.getDay()];
+            return `${dateObj.getMonth() + 1}/${dateObj.getDate()} (${dayName})`;
+        }
+        
+        function selectDate(date, tabElement) {
+            selectedDate = date;
+            updateActiveTab(tabElement);
+            displayDateData(date);
+        }
+        
+        function selectDateTab(date) {
+            const tabs = document.querySelectorAll('.date-tab');
+            const targetTab = Array.from(tabs).find(tab => 
+                tab.textContent === formatDateForTab(date)
+            );
+            
+            if (targetTab) {
+                selectDate(date, targetTab);
+            }
+        }
+        
+        function updateActiveTab(activeTab) {
+            document.querySelectorAll('.date-tab').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            activeTab.classList.add('active');
+        }
+        
+        function displayDateData(date) {
+            const data = calculatedResults[date];
+            updateSelectedDateDisplay(date);
+            updateDayStatistics(data);
+            displayChemicalsList(data.chemicals);
+            displayInksList(data.inks);
+        }
+        
+        function updateSelectedDateDisplay(date) {
+            const dateObj = new Date(date);
+            const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+            const dayName = dayNames[dateObj.getDay()];
+            document.getElementById('selected-date').textContent = 
+                `${dateObj.getMonth() + 1}월 ${dateObj.getDate()}일 (${dayName}요일)`;
+        }
+        
+        function updateDayStatistics(data) {
+            document.getElementById('day-products').textContent = data.products.length;
+            document.getElementById('day-chemicals').textContent = Object.keys(data.chemicals).length;
+            document.getElementById('day-inks').textContent = Object.keys(data.inks).length;
+        }
+        
+        function displayChemicalsList(chemicals) {
+            const container = document.getElementById('chemicals-list');
+            container.innerHTML = '';
+            
+            if (Object.keys(chemicals).length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">약품이 필요한 제품이 없습니다</div>';
+                return;
+            }
+
+            const sortedChemicals = Object.entries(chemicals).sort((a, b) => b[1] - a[1]);
+            
+            sortedChemicals.forEach(([chemical, count]) => {
+                const tag = createMaterialTag(chemical, count);
+                container.appendChild(tag);
+            });
+        }
+        
+        function displayInksList(inks) {
+            const container = document.getElementById('inks-list');
+            container.innerHTML = '';
+            
+            if (Object.keys(inks).length === 0) {
+                container.innerHTML = '<div style="text-align: center; color: #666; padding: 20px;">잉크가 필요한 제품이 없습니다</div>';
+                return;
+            }
+
+            const sortedInks = Object.entries(inks).sort((a, b) => b[1] - a[1]);
+            
+            sortedInks.forEach(([ink, count]) => {
+                const tag = createMaterialTag(ink, count);
+                container.appendChild(tag);
+            });
+        }
+        
+        function createMaterialTag(materialName, count) {
+            const tag = document.createElement('div');
+            tag.className = 'material-tag';
+            tag.innerHTML = `${materialName} <span class="material-tag count">${count}</span>`;
+            return tag;
+        }
+
+        /* ============================================================================
+           주간 요약 표시
+           ============================================================================ */
+        
+        function displayWeeklySummary(results) {
+            const {weeklyChemicals, weeklyInks} = calculateWeeklyTotals(results);
+            displayWeeklyChemicals(weeklyChemicals);
+            displayWeeklyInks(weeklyInks);
+        }
+        
+        function calculateWeeklyTotals(results) {
+            const weeklyChemicals = {};
+            const weeklyInks = {};
+
+            Object.keys(results).forEach(date => {
+                Object.entries(results[date].chemicals).forEach(([chemical, count]) => {
+                    weeklyChemicals[chemical] = (weeklyChemicals[chemical] || 0) + count;
+                });
+                
+                Object.entries(results[date].inks).forEach(([ink, count]) => {
+                    weeklyInks[ink] = (weeklyInks[ink] || 0) + count;
+                });
+            });
+
+            return {weeklyChemicals, weeklyInks};
+        }
+        
+        function displayWeeklyChemicals(weeklyChemicals) {
+            document.getElementById('total-chemicals').textContent = Object.keys(weeklyChemicals).length;
+            const container = document.getElementById('weekly-chemicals');
+            container.innerHTML = '';
+            
+            const sortedChemicals = Object.entries(weeklyChemicals).sort((a, b) => b[1] - a[1]);
+            sortedChemicals.forEach(([chemical, count]) => {
+                const tag = createWeeklyMaterialTag(chemical, count);
+                container.appendChild(tag);
+            });
+        }
+        
+        function displayWeeklyInks(weeklyInks) {
+            document.getElementById('total-inks').textContent = Object.keys(weeklyInks).length;
+            const container = document.getElementById('weekly-inks');
+            container.innerHTML = '';
+            
+            const sortedInks = Object.entries(weeklyInks).sort((a, b) => b[1] - a[1]).slice(0, 20);
+            sortedInks.forEach(([ink, count]) => {
+                const tag = createWeeklyMaterialTag(ink, count);
+                container.appendChild(tag);
+            });
+
+            if (Object.keys(weeklyInks).length > 20) {
+                const moreTag = createMoreItemsTag(Object.keys(weeklyInks).length - 20);
+                container.appendChild(moreTag);
+            }
+        }
+        
+        function createWeeklyMaterialTag(materialName, count) {
+            const tag = document.createElement('div');
+            tag.className = 'top-material';
+            tag.textContent = `${materialName}: ${count}`;
+            return tag;
+        }
+        
+        function createMoreItemsTag(remainingCount) {
+            const tag = document.createElement('div');
+            tag.className = 'top-material';
+            tag.style.fontStyle = 'italic';
+            tag.textContent = `...외 ${remainingCount}종`;
+            return tag;
+        }
+
+        /* ============================================================================
+           다운로드 기능
+           ============================================================================ */
+        
+        function downloadInkList() {
+            if (!calculatedResults) {
+                showError('먼저 계산을 실행해주세요.');
+                return;
+            }
+
+            try {
+                const weeklyInks = aggregateWeeklyInks();
+                const sortedInks = Object.entries(weeklyInks).sort((a, b) => b[1] - a[1]);
+
+                if (sortedInks.length === 0) {
+                    showError('다운로드할 잉크 데이터가 없습니다.');
+                    return;
+                }
+
+                const csvContent = generateCSVContent(sortedInks);
+                downloadCSVFile(csvContent, sortedInks.length);
+
+            } catch (error) {
+                console.error('다운로드 처리 오류:', error);
+                try {
+                    const weeklyInks = aggregateWeeklyInks();
+                    const sortedInks = Object.entries(weeklyInks).sort((a, b) => b[1] - a[1]);
+                    const csvContent = generateCSVContent(sortedInks);
+                    showDataModal(csvContent, sortedInks.length);
+                } catch (modalError) {
+                    showDataAsText();
+                }
+            }
+        }
+        
+        function aggregateWeeklyInks() {
+            const weeklyInks = {};
+            Object.keys(calculatedResults).forEach(date => {
+                Object.entries(calculatedResults[date].inks).forEach(([ink, count]) => {
+                    weeklyInks[ink] = (weeklyInks[ink] || 0) + count;
+                });
+            });
+            return weeklyInks;
+        }
+        
+        function generateCSVContent(sortedInks) {
+            let csvContent = '순위,잉크명,필요량,비고\n';
+            sortedInks.forEach(([inkName, count], index) => {
+                const cleanInkName = inkName.replace(/"/g, '""');
+                csvContent += `${index + 1},"${cleanInkName}",${count},""\n`;
+            });
+            return csvContent;
+        }
+        
+        function downloadCSVFile(content, count) {
+            const BOM = '\uFEFF';
+            const finalContent = BOM + content;
+
+            try {
+                const filename = generateDownloadFilename();
+                const blob = new Blob([finalContent], { type: 'text/csv;charset=utf-8;' });
+                
+                if (typeof saveAs !== 'undefined') {
+                    saveAs(blob, filename);
+                    showDownloadSuccess(filename, count);
+                } else {
+                    downloadSafely(finalContent, count);
+                }
+                
+            } catch (error) {
+                console.error('FileSaver.js 다운로드 실패:', error);
+                downloadSafely(finalContent, count);
+            }
+        }
+        
+        function downloadSafely(content, count) {
+            try {
+                const filename = generateDownloadFilename();
+                const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+
+                if (window.navigator && window.navigator.msSaveOrOpenBlob) {
+                    window.navigator.msSaveOrOpenBlob(blob, filename);
+                    showDownloadSuccess(filename, count);
+                    return;
+                }
+
+                const url = window.URL.createObjectURL(blob);
+                const tempLink = document.createElement('a');
+                tempLink.style.display = 'none';
+                tempLink.href = url;
+                tempLink.setAttribute('download', filename);
+                
+                if (document.body) {
+                    document.body.appendChild(tempLink);
+                    tempLink.click();
+                    document.body.removeChild(tempLink);
+                } else {
+                    tempLink.click();
+                }
+
+                window.URL.revokeObjectURL(url);
+                setTimeout(() => showDownloadSuccess(filename, count), 100);
+
+            } catch (error) {
+                console.error('기존 방식 다운로드도 실패:', error);
+                showDataModal(content, count);
+            }
+        }
+        
+        function generateDownloadFilename() {
+            const today = new Date();
+            const dateString = `${today.getFullYear()}${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}`;
+            return `잉크_소요량_${dateString}.csv`;
+        }
+        
+        function showDownloadSuccess(filename, count) {
+            alert(`✅ ${filename} 파일이 다운로드되었습니다!\n\n총 ${count}개 잉크 목록이 포함되어 있습니다.\n\n※ 다운로드 폴더를 확인해주세요.`);
+        }
+
+        /* ============================================================================
+           백업 다운로드 방법 (모달)
+           ============================================================================ */
+        
+        function showDataModal(content, count) {
+            const existingModal = document.getElementById('download-modal');
+            if (existingModal) {
+                existingModal.remove();
+            }
+
+            const modalHTML = createDownloadModal(content, count);
+            document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+            setTimeout(() => {
+                const textarea = document.getElementById('csv-data');
+                if (textarea) {
+                    textarea.focus();
+                    textarea.select();
+                }
+            }, 100);
+        }
+        
+        function createDownloadModal(content, count) {
+            return `
+                <div id="download-modal" style="
+                    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+                    background: rgba(0,0,0,0.8); z-index: 10000;
+                    display: flex; align-items: center; justify-content: center;
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                ">
+                    <div style="
+                        background: white; padding: 30px; border-radius: 15px;
+                        max-width: 90%; max-height: 90%; overflow: auto;
+                        box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+                    ">
+                        <h3 style="margin: 0 0 20px 0; color: #333; text-align: center;">
+                            📊 잉크 소요량 데이터 (${count}개)
+                        </h3>
+                        <div style="
+                            background: #f8f9fa; padding: 15px; border-radius: 8px;
+                            margin-bottom: 20px; border-left: 4px solid #007bff;
+                        ">
+                            <strong>📋 사용 방법:</strong><br>
+                            1. 아래 텍스트를 모두 선택 (Ctrl+A)<br>
+                            2. 복사 (Ctrl+C)<br>
+                            3. 엑셀에 새 시트 만들고 붙여넣기 (Ctrl+V)<br>
+                            4. 엑셀에서 "데이터 → 텍스트 나누기" 선택<br>
+                            5. 구분 기호 "쉼표" 선택하여 완료
+                        </div>
+                        <textarea id="csv-data" style="
+                            width: 100%; height: 300px; 
+                            font-family: 'Courier New', monospace; font-size: 12px;
+                            border: 2px solid #ddd; border-radius: 5px; padding: 10px;
+                            resize: vertical; background: #fafafa;
+                        " readonly>${content}</textarea>
+                        <div style="margin-top: 20px; text-align: center;">
+                            <button onclick="copyDataToClipboard()" style="
+                                background: #28a745; color: white; border: none;
+                                padding: 10px 20px; border-radius: 5px; cursor: pointer;
+                                margin-right: 10px; font-weight: bold;
+                            ">📋 복사하기</button>
+                            <button onclick="document.getElementById('download-modal').remove()" style="
+                                background: #6c757d; color: white; border: none;
+                                padding: 10px 20px; border-radius: 5px; cursor: pointer;
+                                font-weight: bold;
+                            ">닫기</button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function copyDataToClipboard() {
+            const textarea = document.getElementById('csv-data');
+            if (textarea) {
+                textarea.select();
+                document.execCommand('copy');
+                alert('📋 데이터가 클립보드에 복사되었습니다!');
+            }
+        }
+        
+        function showDataAsText() {
+            if (!calculatedResults) return;
+
+            const weeklyInks = aggregateWeeklyInks();
+            const sortedInks = Object.entries(weeklyInks).sort((a, b) => b[1] - a[1]);
+            
+            let displayText = '📊 잉크 소요량 목록 (내림차순)\n';
+            displayText += '='.repeat(40) + '\n\n';
+            
+            sortedInks.slice(0, 20).forEach(([inkName, count], index) => {
+                displayText += `${(index + 1).toString().padStart(2, ' ')}. ${inkName}: ${count}\n`;
+            });
+            
+            if (sortedInks.length > 20) {
+                displayText += `\n... 외 ${sortedInks.length - 20}개 더`;
+            }
+
+            alert(displayText);
+        }
+
+        /* ============================================================================
+           유틸리티 함수들
+           ============================================================================ */
+        
+        function showError(message) {
+            alert(`❌ ${message}`);
+        }
+        
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            const dayNames = ['일', '월', '화', '수', '목', '금', '토'];
+            return `${date.getMonth() + 1}/${date.getDate()} (${dayNames[date.getDay()]})`;
+        }
+
+        /* ============================================================================
+           전역 함수들
+           ============================================================================ */
+        
+        window.skipCurrentMatch = skipCurrentMatch;
+        window.confirmCurrentMatch = confirmCurrentMatch;
+        window.copyDataToClipboard = copyDataToClipboard;
+
+    </script>
+</body>
+</html>MapWithValidation(bomData, injectionData) {
+            const bomMap = createBOMMap(bomData);
+            const unmatchedList = findUnmatchedProducts(injectionData, bomMap);
+            return {bomMap, unmatchedList: unmatchedList.sort()};
+        }
+        
+        function createBOMMap(bomData) {
+            const bomMap = {};
+            
+            bomData.forEach(item => {
+                const productName = item['판매명'];
+                if (!productName) return;
+
+                bomMap[productName] = {
+                    chemical: item['약품명'] || '',
+                    inks: extractInksFromBOM(item)
+                };
+            });
+            
+            return bomMap;
+        }
+        
+        function extractInksFromBOM(bomItem) {
+            const inks = [];
+            for (let i = 1; i <= 3; i++) {
+                const inkName = bomItem[`잉크명${i}`];
+                if (inkName) {
+                    inks.push(inkName);
+                }
+            }
+            return inks;
+        }
+        
+        function findUnmatchedProducts(injectionData, bomMap) {
+            const allProductsInPlan = extractAllProductsFromPlan(injectionData);
+            const unmatchedList = [];
+
+            allProductsInPlan.forEach(product => {
+                if (!bomMap[product] && !unmatchedList.includes(product)) {
+                    unmatchedList.push(product);
+                }
+            });
+
+            return unmatchedList;
+        }
+        
+        function extractAllProductsFromPlan(injectionData) {
+            const allProducts = new Set();
+
+            for (let row = 3; row < injectionData.length; row++) {
+                const rowData = injectionData[row];
+                if (!isValidMachineRow(rowData)) continue;
+                
+                DATE_COLUMNS.forEach(dateCol => {
+                    const product = rowData[dateCol.index];
+                    
+                    if (isValidProduct(product)) {
+                        allProducts.add(product);
+                    }
+                });
+            }
+
+            return Array.from(allProducts);
+        }
+        
+        function isValidMachineRow(rowData) {
+            return rowData && rowData[0] && rowData[0].toString().includes('호기');
+        }
+        
+        function isValidProduct(product) {
+            return product && 
+                   product !== '계획정지' && 
+                   product !== null && 
+                   product !== undefined && 
+                   !['MIR', 'O', '1', '3', '4', '3층'].includes(product);
+        }
+        
+        function extractProductionPlan(data) {
+            const dailyProduction = {};
+            
+            for (let row = 3; row < data.length; row++) {
+                const rowData = data[row];
+                if (!isValidMachineRow(rowData)) continue;
+                
+                DATE_COLUMNS.forEach(dateCol => {
+                    const product = rowData[dateCol.index];
+                    
+                    if (isValidProduct(product)) {
+                        if (!dailyProduction[dateCol.date]) {
+                            dailyProduction[dateCol.date] = new Set();
+                        }
+                        dailyProduction[dateCol.date].add(product);
+                    }
+                });
+            }
+
+            return dailyProduction;
+        }
+        
+        function calculateDailyMaterialTypes(dailyProduction, bomMap) {
+            const results = {};
+
+            Object.keys(dailyProduction).forEach(date => {
+                results[date] = {
+                    products: Array.from(dailyProduction[date]),
+                    chemicals: {},
+                    inks: {}
+                };
+
+                Array.from(dailyProduction[date]).forEach(productName => {
+                    if (bomMap[productName]) {
+                        calculateMaterialsForProduct(bomMap[productName], results[date]);
+                    }
+                });
+            });
+
+            return results;
+        }
+        
+        function calculateMaterialsForProduct(bomEntry, dayResult) {
+            const chemical = bomEntry.chemical;
+            if (chemical) {
+                dayResult.chemicals[chemical] = (dayResult.chemicals[chemical] || 0) + MULTIPLIERS.CHEMICAL;
+            }
+
+            bomEntry.inks.forEach(ink => {
+                dayResult.inks[ink] = (dayResult.inks[ink] || 0) + MULTIPLIERS.INK;
+            });
+        }
+
+        /* ============================================================================
+           제품 매칭 시스템
+           ============================================================================ */
+        
+        function applyMatchingStrategies(bomMap, bomJsonData, unmatchedList) {
+            const finalBomMap = {...bomMap};
+            const stillUnmatched = [];
+
+            unmatchedList.forEach(product => {
+                if (productMatches[product]) {
+                    const matchedBomProduct = bomJsonData.find(item => item['판매명'] === productMatches[product]);
+                    if (matchedBomProduct) {
+                        finalBomMap[product] = createBOMEntry(matchedBomProduct);
+                        return;
+                    }
+                }
+
+                const suggestions = findSimilarProducts(product, bomJsonData);
+                stillUnmatched.push(product);
+            });
+
+            return {finalBomMap, stillUnmatched};
+        }
+        
+        function createBOM
