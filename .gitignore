@@ -1,0 +1,46 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.dist-info/
+
+# Virtual env
+.venv/
+venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+
+# Build artifacts
+build/
+dist/
+*.spec
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Local data
+*.db
+*.sqlite
+*.sqlite3
+
+# Exports
+*.pdf
+*.xlsx
+*.xlsm
+*.csv
+
+# Images
+*.png
+*.jpg
+*.jpeg
+
