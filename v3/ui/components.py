@@ -2,9 +2,14 @@
 재사용 가능한 UI 컴포넌트들
 공통으로 사용되는 UI 요소들을 모듈화합니다.
 """
-from PySide6.QtWidgets import *
-from PySide6.QtCore import *
-from PySide6.QtGui import *
+from PySide6.QtWidgets import (
+    QApplication, QComboBox, QDialog, QDoubleSpinBox, QGraphicsDropShadowEffect,
+    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox,
+    QStatusBar, QStyledItemDelegate, QTableWidget, QTableWidgetItem,
+    QVBoxLayout, QValidator, QWidget,
+)
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
+from PySide6.QtGui import QColor
 from qfluentwidgets import PushButton, PrimaryPushButton, CardWidget, CaptionLabel, SubtitleLabel, ProgressBar
 from config.config_manager import config
 from utils.logger import logger
@@ -146,7 +151,6 @@ class InfoCard(CardWidget):
     def __init__(self, title: str, value: str = "0", parent=None):
         super().__init__(parent)
         self.setFixedSize(280, 140)
-        self.setFixedSize(280, 140)
         self.setStyleSheet(UIStyles.get_card_style())
 
         layout = QVBoxLayout(self)
@@ -172,7 +176,6 @@ class MintInfoCard(CardWidget):
     """Mint-accent KPI card."""
     def __init__(self, title: str, value: str = "0", parent=None):
         super().__init__(parent)
-        self.setFixedSize(280, 140)
         self.setFixedSize(280, 140)
         self.setStyleSheet(UIStyles.get_card_style())
 

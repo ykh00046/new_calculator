@@ -12,51 +12,15 @@ import hashlib
 import hmac
 import json
 import os
-import sys
 from typing import Any, Dict, Tuple
 
-
-def _detect_base_path() -> str:
-    """Detect the application base path (handles frozen executable)."""
-    if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-
-def _resolve_user_data_dir(base_path: str) -> str:
-    """
-    Determine a writable user data directory for configs/DB/logs.
-    Mirrors the logic in config.settings without importing to avoid cycles.
-    """
-    candidates = []
-    env_override = os.environ.get("MIXING_APP_DATA_DIR")
-    if env_override:
-        candidates.append(env_override)
-
-    if os.name == "nt":
-        local_appdata = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA")
-        if local_appdata:
-            candidates.append(os.path.join(local_appdata, "MixingProgram"))
-
-    home_dir = os.path.expanduser("~")
-    if home_dir:
-        candidates.append(os.path.join(home_dir, ".mixingprogram"))
-
-    candidates.append(os.path.join(base_path, "data"))
-
-    for path in candidates:
-        try:
-            os.makedirs(path, exist_ok=True)
-            return path
-        except Exception:
-            continue
-    return base_path
+from config.settings import BASE_PATH, USER_DATA_DIR
 
 
 class Config:
     def __init__(self) -> None:
-        self._base_path = _detect_base_path()
-        self._user_data_dir = _resolve_user_data_dir(self._base_path)
+        self._base_path = BASE_PATH
+        self._user_data_dir = USER_DATA_DIR
         self._config_path = os.path.join(self._user_data_dir, "config", "config.json")
         self._legacy_config_path = os.path.join(self._base_path, "config", "config.json")
         os.makedirs(os.path.dirname(self._config_path), exist_ok=True)

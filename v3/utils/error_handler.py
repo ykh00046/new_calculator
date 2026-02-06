@@ -5,8 +5,10 @@
 import functools
 from typing import Optional, Callable, Any
 from PySide6.QtWidgets import QMessageBox
-from ui.styles import UITheme
 from .logger import logger
+
+# Default text color for dark theme dialogs (avoids reverse dependency on ui.styles)
+_DEFAULT_TEXT_COLOR = "#F5F7FA"
 
 
 class MixingProgramError(Exception):
@@ -117,7 +119,7 @@ def show_error_message(title: str, detail: str = "", parent=None):
     msg_box.setIcon(QMessageBox.Critical)
     msg_box.setWindowTitle("오류")
     msg_box.setText(title)
-    msg_box.setStyleSheet(f"QLabel {{ color: {UITheme.TEXT_PRIMARY}; }} QAbstractButton {{ color: {UITheme.TEXT_PRIMARY}; }}")
+    msg_box.setStyleSheet(f"QLabel {{ color: {_DEFAULT_TEXT_COLOR}; }} QAbstractButton {{ color: {_DEFAULT_TEXT_COLOR}; }}")
     
     if detail:
         msg_box.setDetailedText(detail)
@@ -131,7 +133,7 @@ def show_warning_message(title: str, detail: str = "", parent=None):
     msg_box.setIcon(QMessageBox.Warning)
     msg_box.setWindowTitle("경고")
     msg_box.setText(title)
-    msg_box.setStyleSheet(f"QLabel {{ color: {UITheme.TEXT_PRIMARY}; }} QAbstractButton {{ color: {UITheme.TEXT_PRIMARY}; }}")
+    msg_box.setStyleSheet(f"QLabel {{ color: {_DEFAULT_TEXT_COLOR}; }} QAbstractButton {{ color: {_DEFAULT_TEXT_COLOR}; }}")
     
     if detail:
         msg_box.setDetailedText(detail)
@@ -145,7 +147,7 @@ def show_info_message(title: str, detail: str = "", parent=None):
     msg_box.setIcon(QMessageBox.Information)
     msg_box.setWindowTitle("정보")
     msg_box.setText(title)
-    msg_box.setStyleSheet(f"QLabel {{ color: {UITheme.TEXT_PRIMARY}; }} QAbstractButton {{ color: {UITheme.TEXT_PRIMARY}; }}")
+    msg_box.setStyleSheet(f"QLabel {{ color: {_DEFAULT_TEXT_COLOR}; }} QAbstractButton {{ color: {_DEFAULT_TEXT_COLOR}; }}")
     
     if detail:
         msg_box.setDetailedText(detail)

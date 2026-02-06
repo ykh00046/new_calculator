@@ -73,23 +73,23 @@ class Logger:
     
     def debug(self, message, **kwargs):
         """디버그 로그"""
-        self._logger.debug(message, extra=kwargs)
-    
+        self._logger.debug(message, **kwargs)
+
     def info(self, message, **kwargs):
         """정보 로그"""
-        self._logger.info(message, extra=kwargs)
-    
+        self._logger.info(message, **kwargs)
+
     def warning(self, message, **kwargs):
         """경고 로그"""
-        self._logger.warning(message, extra=kwargs)
-    
+        self._logger.warning(message, **kwargs)
+
     def error(self, message, **kwargs):
         """에러 로그"""
-        self._logger.error(message, extra=kwargs)
-    
+        self._logger.error(message, **kwargs)
+
     def critical(self, message, **kwargs):
         """치명적 에러 로그"""
-        self._logger.critical(message, extra=kwargs)
+        self._logger.critical(message, **kwargs)
     
     def log_mixing_operation(self, operation, recipe_name, worker, **details):
         """배합 작업 전용 로그"""
