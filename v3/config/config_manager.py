@@ -7,10 +7,13 @@ JSON file is missing or malformed by falling back to safe defaults.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
+import hmac
 import json
 import os
 import sys
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 
 def _detect_base_path() -> str:
@@ -153,13 +156,70 @@ class Config:
         except Exception:
             return False
 
-    def get_admin_password(self) -> str:
-        """Get the admin password from config."""
-        return self.get("admin.password", "1234")
+    def _get_admin_password(self) -> str:
+        """Get the legacy admin password from config (internal use only)."""
+        return self.get("admin.password", "")
 
     def verify_admin_password(self, password: str) -> bool:
         """Verify the admin password."""
-        return password == self.get_admin_password()
+        admin = self._data.get("admin", {})
+        if not isinstance(admin, dict):
+            admin = {}
+
+        salt_b64 = admin.get("password_salt")
+        hash_b64 = admin.get("password_hash")
+        if salt_b64 and hash_b64:
+            return self._verify_password(password, salt_b64, hash_b64)
+
+        legacy_password = admin.get("password") or self._get_admin_password()
+        if legacy_password and password == legacy_password:
+            self.set_admin_password(password, remove_legacy=True)
+            return True
+
+        return False
+
+    def is_admin_password_set(self) -> bool:
+        """Return True if an admin password (hash or legacy) exists."""
+        admin = self._data.get("admin", {})
+        if not isinstance(admin, dict):
+            admin = {}
+        if admin.get("password_salt") and admin.get("password_hash"):
+            return True
+        legacy_password = admin.get("password") or self._get_admin_password()
+        return bool(legacy_password)
+
+    def set_admin_password(self, password: str, remove_legacy: bool = True) -> bool:
+        """Set and store the admin password as a salted hash."""
+        if not password:
+            return False
+        salt_b64, hash_b64 = self._hash_password(password)
+        admin = self._data.setdefault("admin", {})
+        if not isinstance(admin, dict):
+            admin = {}
+            self._data["admin"] = admin
+        admin["password_salt"] = salt_b64
+        admin["password_hash"] = hash_b64
+        if remove_legacy and "password" in admin:
+            del admin["password"]
+        return self._save_config()
+
+    def _hash_password(self, password: str, salt: bytes = None) -> Tuple[str, str]:
+        if salt is None:
+            salt = os.urandom(16)
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 200000)
+        return (
+            base64.b64encode(salt).decode("utf-8"),
+            base64.b64encode(dk).decode("utf-8"),
+        )
+
+    def _verify_password(self, password: str, salt_b64: str, hash_b64: str) -> bool:
+        try:
+            salt = base64.b64decode(salt_b64.encode("utf-8"))
+            expected = base64.b64decode(hash_b64.encode("utf-8"))
+        except Exception:
+            return False
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 200000)
+        return hmac.compare_digest(dk, expected)
 
     def _save_config(self) -> bool:
         """Save the config data to file."""

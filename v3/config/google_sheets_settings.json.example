@@ -1,0 +1,9 @@
+{
+  "credentials_file": "<PATH_TO_YOUR_SERVICE_ACCOUNT_JSON>",
+  "spreadsheet_url": "<YOUR_GOOGLE_SPREADSHEET_URL>",
+  "last_backup_time": "",
+  "backup_enabled": false,
+  "auto_backup_on_save": false,
+  "backup_success_count": 0,
+  "backup_failure_count": 0
+}

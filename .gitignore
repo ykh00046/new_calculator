@@ -33,6 +33,9 @@ Thumbs.db
 *.sqlite
 *.sqlite3
 
+# Credentials & secrets
+v3/config/google_sheets_settings.json
+
 # Exports
 *.pdf
 *.xlsx
