@@ -159,24 +159,24 @@ class DataManager:
                                mixing_amount: float, materials_data: Dict) -> Tuple[bool, str]:
         """Validate required inputs before saving a record."""
         if not worker_name:
-            return False, "???? ?? ?????."
+            return False, "작업자를 선택해 주세요."
         if not recipe_name.strip():
-            return False, "???? ?????."
+            return False, "레시피를 선택해주세요."
         if not mixing_amount > 0:
-            return False, "???? ?????."
+            return False, "배합량을 입력해주세요."
         if not materials_data:
-            return False, "?? ??? ?????."
+            return False, "원료 정보가 없습니다."
         for _, data in materials_data.items():
             lot = str(data.get("LOT", "")).strip()
             if not lot:
-                return False, "??LOT? ?? ?????."
-            actual = data.get("????", data.get("actual_amount", 0))
+                return False, "자재LOT가 비어 있습니다."
+            actual = data.get("실제배합", data.get("actual_amount", 0))
             try:
                 actual_val = float(actual)
             except (TypeError, ValueError):
                 actual_val = 0.0
             if actual_val <= 0:
-                return False, "?? ???? ?????."
+                return False, "실제 배합량을 입력해주세요."
         return True, ""
 
     def save_record(self, worker_name: str, recipe_name: str, mixing_amount: float, materials_data: Dict, work_date: str, work_time: str, signature_options: Optional[Dict] = None, effects_params: Optional[Dict] = None, include_work_time: bool = True) -> str:

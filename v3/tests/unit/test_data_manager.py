@@ -99,7 +99,7 @@ class TestDataManager(unittest.TestCase):
         """Test record input validation success"""
         dm = DataManager()
         materials = {
-            "M001": {"LOT": "LOT-001"}
+            "M001": {"LOT": "LOT-001", "실제배합": 5.0}
         }
         ok, msg = dm.validate_record_inputs("Worker", "Recipe", 10.0, materials)
         self.assertTrue(ok)

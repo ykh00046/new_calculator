@@ -4,12 +4,12 @@
 """
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDialog, QDoubleSpinBox, QGraphicsDropShadowEffect,
-    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QSpinBox,
-    QStatusBar, QStyledItemDelegate, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QValidator, QWidget,
+    QGroupBox, QHBoxLayout, QLabel, QLineEdit, QProgressBar, QPushButton,
+    QSpinBox, QStatusBar, QStyledItemDelegate, QTableWidget, QTableWidgetItem,
+    QVBoxLayout, QWidget,
 )
 from PySide6.QtCore import QEvent, Qt, QTimer, Signal
-from PySide6.QtGui import QColor
+from PySide6.QtGui import QColor, QValidator
 from qfluentwidgets import PushButton, PrimaryPushButton, CardWidget, CaptionLabel, SubtitleLabel, ProgressBar
 from config.config_manager import config
 from utils.logger import logger

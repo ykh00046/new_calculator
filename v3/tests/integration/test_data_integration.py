@@ -34,10 +34,15 @@ class TestDataIntegration(unittest.TestCase):
         
         def test_init(instance):
             instance.db_manager = DatabaseManager(self.test_db_path)
-            # Mock lot manager and recipes for integration test simplicity or use real ones if files present
             from models.lot_manager import LotManager
             instance.lot_manager = LotManager(os.path.join(self.test_dir, 'lots.xlsx'))
-            instance.recipes = {} 
+            instance.recipes = {}
+            # Stub Google Sheets backup to avoid external dependencies
+            instance.google_sheets_config = type('Stub', (), {
+                'is_backup_enabled': lambda self: False,
+                'is_auto_backup_on_save': lambda self: False,
+            })()
+            instance.google_sheets_backup = None
             
         DataManager.__init__ = test_init
         self.dm = DataManager()
