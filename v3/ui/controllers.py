@@ -1,0 +1,143 @@
+from typing import Callable
+
+from utils.logger import logger
+
+
+class RecipeController:
+    def __init__(
+        self,
+        data_manager,
+        recipe_panel,
+        material_panel,
+        on_recipe_loaded: Callable[[int], None],
+        on_recipe_cleared: Callable[[], None],
+        on_after_load: Callable[[], None],
+        on_error: Callable[[str], None],
+    ):
+        self.data_manager = data_manager
+        self.recipe_panel = recipe_panel
+        self.material_panel = material_panel
+        self.on_recipe_loaded = on_recipe_loaded
+        self.on_recipe_cleared = on_recipe_cleared
+        self.on_after_load = on_after_load
+        self.on_error = on_error
+
+    def load_recipes(self) -> None:
+        """Load recipe names into the recipe panel."""
+        try:
+            self.data_manager.load_recipes()
+            names = self.data_manager.get_recipe_names()
+            self.recipe_panel.set_recipes(names)
+            logger.info(f"레시피 로드: {len(names)}종")
+            self.on_recipe_loaded(len(names))
+        except Exception as e:
+            logger.error(f"레시피 로드 오류: {e}")
+            self.on_error("데이터베이스에서 레시피를 불러오는데 실패했습니다.")
+
+    def on_recipe_changed(self, recipe_name: str) -> None:
+        if not recipe_name:
+            self.material_panel.clear_items()
+            self.on_recipe_cleared()
+            return
+
+        items = self.data_manager.get_recipe_items(recipe_name)
+        self.material_panel.load_items(items)
+        self.on_after_load()
+
+
+class PanelSignalBinder:
+    def __init__(self, recipe_panel, work_info_panel, material_panel):
+        self.recipe_panel = recipe_panel
+        self.work_info_panel = work_info_panel
+        self.material_panel = material_panel
+
+    def bind(self, callbacks) -> None:
+        required_keys = {
+            "on_recipe_changed",
+            "on_amount_changed",
+            "on_amount_confirmed",
+            "on_refresh_dashboard",
+            "on_amount_check_failed",
+            "on_validation_changed",
+            "on_table_edit_finished",
+            "on_reset_requested",
+        }
+        missing = required_keys - set(callbacks.keys())
+        if missing:
+            raise KeyError(f"Missing callbacks for PanelSignalBinder: {sorted(missing)}")
+
+        self.recipe_panel.recipeChanged.connect(callbacks["on_recipe_changed"])
+        self.recipe_panel.amountChanged.connect(callbacks["on_amount_changed"])
+        self.recipe_panel.amountConfirmed.connect(callbacks["on_amount_confirmed"])
+        self.recipe_panel.recipeChanged.connect(callbacks["on_refresh_dashboard"])
+        self.recipe_panel.amountChanged.connect(callbacks["on_refresh_dashboard"])
+        self.work_info_panel.date_edit.dateChanged.connect(callbacks["on_refresh_dashboard"])
+
+        self.material_panel.amountCheckFailed.connect(callbacks["on_amount_check_failed"])
+        self.material_panel.validationStatusChanged.connect(callbacks["on_validation_changed"])
+        self.material_panel.tableEditFinished.connect(callbacks["on_table_edit_finished"])
+        self.material_panel.resetRequested.connect(callbacks["on_reset_requested"])
+
+
+class StatusController:
+    def __init__(self, status_bar, google_sheets_label, google_sheets_config):
+        self.status_bar = status_bar
+        self.google_sheets_label = google_sheets_label
+        self.google_sheets_config = google_sheets_config
+
+    def set_message(self, message: str) -> None:
+        self.status_bar.showMessage(message)
+
+    def update_backup_status(self) -> None:
+        status_text = self.google_sheets_config.get_backup_status_text()
+        self.google_sheets_label.setText(f"☁️ {status_text}")
+        logger.debug(f"Google Sheets 백업 상태 업데이트: {status_text}")
+
+
+class SaveController:
+    def __init__(
+        self,
+        data_manager,
+        recipe_panel,
+        work_info_panel,
+        material_panel,
+        signature_panel,
+        scan_effects_panel,
+        validate_inputs,
+        on_validation_error,
+        on_success,
+    ):
+        self.data_manager = data_manager
+        self.recipe_panel = recipe_panel
+        self.work_info_panel = work_info_panel
+        self.material_panel = material_panel
+        self.signature_panel = signature_panel
+        self.scan_effects_panel = scan_effects_panel
+        self.validate_inputs = validate_inputs
+        self.on_validation_error = on_validation_error
+        self.on_success = on_success
+
+    def _collect_payload(self) -> dict:
+        work_data = self.work_info_panel.get_data()
+        materials_data = self.material_panel.get_data()
+        return {
+            "worker_name": work_data.get("worker_name"),
+            "recipe_name": self.recipe_panel.get_recipe_name(),
+            "mixing_amount": self.recipe_panel.get_amount(),
+            "materials_data": materials_data,
+            "work_date": work_data.get("work_date"),
+            "work_time": work_data.get("work_time"),
+            "signature_options": self.signature_panel.get_data(),
+            "effects_params": self.scan_effects_panel.get_data(),
+            "include_work_time": work_data.get("include_time"),
+        }
+
+    def save_record(self) -> None:
+        valid, error_msg = self.validate_inputs()
+        if not valid:
+            self.on_validation_error(error_msg)
+            return
+
+        payload = self._collect_payload()
+        lot = self.data_manager.save_record(**payload)
+        self.on_success(lot)

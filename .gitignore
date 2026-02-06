@@ -27,6 +27,7 @@ Thumbs.db
 
 # Logs
 *.log
+v3/logs/
 
 # Local data
 *.db
@@ -35,6 +36,11 @@ Thumbs.db
 
 # Credentials & secrets
 v3/config/google_sheets_settings.json
+v3/config/config.json
+
+# bkit internal
+docs/.bkit-memory.json
+docs/.pdca-status.json
 
 # Exports
 *.pdf
