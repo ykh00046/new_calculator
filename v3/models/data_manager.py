@@ -199,70 +199,86 @@ class DataManager:
             # 2. Persist
             self.db_manager.save_mixing_record(record_data, details_data)
             self._backup_to_google_sheets(record_data, details_data)
-            logger.info(f"?? ??: LOT {product_lot}")
+            logger.info(f"배합 저장: LOT {product_lot}")
 
             # 3. Export disabled (use record view)
             # self._export_report(record_data, details_data, signature_options, effects_params, include_work_time)
 
             return product_lot
         except Exception as e:
-            logger.critical(f"?? ? ?? ??: {e}", exc_info=True)
+            logger.critical(f"배합 기록 저장 실패: {e}", exc_info=True)
             raise
+
+    def _generate_report_files(self, export_data: Dict, worker_name: str,
+                               signature_cfg: Dict, effects_params: Optional[Dict],
+                               include_work_time: bool = True) -> Optional[str]:
+        """서명 이미지/Excel/PDF 공통 생성 로직.
+
+        Returns:
+            생성된 PDF 파일 경로, 실패 시 None.
+        """
+        from models.excel_exporter import ExcelExporter
+        from models.image_processor import ImageProcessor
+
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        resources_path = os.path.join(base_dir, 'resources', 'signature')
+        base_image_path = os.path.join(resources_path, 'image.jpeg')
+        signed_image_path = os.path.join(base_dir, 'resources', f"temp_signed_{worker_name}.png")
+        debug_path = os.path.join(base_dir, '실적서', 'debug_images')
+
+        img_processor = ImageProcessor(resources_path=resources_path, config=signature_cfg)
+        success, msg = img_processor.create_signed_image(
+            base_image_path, signed_image_path, worker_name, debug_path=debug_path
+        )
+        image_to_embed = signed_image_path if success else base_image_path
+        if not success:
+            logger.warning(f"서명 이미지 생성 실패: {msg}. 기본 이미지로 대체합니다.")
+
+        exporter = ExcelExporter()
+        excel_file = exporter.export_to_excel(
+            export_data,
+            include_image=True,
+            image_path=image_to_embed,
+            include_work_time=include_work_time
+        )
+
+        pdf_file = None
+        if excel_file:
+            pdf_file = exporter.export_to_pdf(excel_file, effects_params)
+            if pdf_file:
+                logger.info(f"실적서 생성 완료: {pdf_file}")
+
+        if success and os.path.exists(signed_image_path):
+            try:
+                os.remove(signed_image_path)
+            except Exception:
+                pass
+
+        return pdf_file
 
     def _export_report(self, record_data: Dict, details_data: List[Dict], signature_options: Optional[Dict], effects_params: Optional[Dict], include_work_time: bool = True):
         """실적서(Excel/PDF)를 생성하는 내부 헬퍼 메서드"""
         try:
-            from models.excel_exporter import ExcelExporter
-            from models.image_processor import ImageProcessor
-    
-            # --- 서명 이미지 생성 ---
             signature_cfg = config.get('signature', {})
             if signature_options:
                 signature_cfg['include'] = signature_options
-    
-            base_dir = os.path.dirname(os.path.dirname(__file__))
-            resources_path = os.path.join(base_dir, 'resources', 'signature')
-    
-            img_processor = ImageProcessor(resources_path=resources_path, config=signature_cfg)
-    
-            base_image_path = os.path.join(resources_path, 'image.jpeg')
-            signed_image_path = os.path.join(base_dir, 'resources', f"temp_signed_{record_data['worker']}.png")
-            debug_path = os.path.join(base_dir, '실적서', 'debug_images')
-    
-            success, msg = img_processor.create_signed_image(
-                base_image_path, signed_image_path, record_data['worker'], debug_path=debug_path
-            )
-            image_to_embed = signed_image_path if success else base_image_path
-            if not success:
-                logger.warning(f"서명 이미지 생성 실패: {msg}. 기본 이미지로 대체합니다.")
-    
-            # --- Excel/PDF 생성 ---
-            exporter = ExcelExporter()
-    
+
             export_data = record_data.copy()
             export_data['materials'] = details_data
-    
-            excel_file = exporter.export_to_excel(
-                export_data,
-                include_image=True,
-                image_path=image_to_embed,
-                include_work_time=include_work_time
+
+            pdf_file = self._generate_report_files(
+                export_data, record_data['worker'], signature_cfg,
+                effects_params, include_work_time
             )
-    
-            if excel_file:
-                pdf_file = exporter.export_to_pdf(excel_file, effects_params)
-                logger.info(f"실적서 생성 완료: {pdf_file}")
+            if pdf_file:
                 try:
+                    import shutil
+                    base_dir = os.path.dirname(os.path.dirname(__file__))
                     final_pdf_dir = os.path.join(base_dir, '실적서', 'pdf')
                     os.makedirs(final_pdf_dir, exist_ok=True)
-                    import shutil
                     shutil.move(pdf_file, os.path.join(final_pdf_dir, os.path.basename(pdf_file)))
                 except Exception as move_err:
                     logger.warning(f"PDF 위치 정규화 실패: {move_err}")
-    
-            if success and os.path.exists(signed_image_path):
-                os.remove(signed_image_path)
-    
         except Exception as e:
             logger.error(f"실적서 생성 중 오류 발생: {e}", exc_info=True)
     
@@ -341,9 +357,7 @@ class DataManager:
             return False
 
     def export_existing_record(self, product_lot: str, effects_params: Optional[Dict] = None, include_work_time: bool = True) -> Optional[str]:
-        """
-        저장된 배합 기록으로 엑셀/PDF를 재출력합니다.
-        """
+        """저장된 배합 기록으로 엑셀/PDF를 재출력합니다."""
         try:
             record = self.db_manager.get_mixing_record_by_lot(product_lot)
             if not record:
@@ -365,44 +379,14 @@ class DataManager:
                 'materials': [dict(d) for d in details]
             }
 
-            from models.image_processor import ImageProcessor
-            base_dir = os.path.dirname(os.path.dirname(__file__))
-            resources_path = os.path.join(base_dir, 'resources', 'signature')
-            base_image_path = os.path.join(resources_path, 'image.jpeg')
-            
             signature_cfg = config.get('signature', {})
-            img_processor = ImageProcessor(resources_path=resources_path, config=signature_cfg)
-            signed_image_path = os.path.join(base_dir, 'resources', f"temp_signed_{record['worker']}.png")
-            debug_path = os.path.join(base_dir, '실적서', 'debug_images')
-
-            success, msg = img_processor.create_signed_image(
-                base_image_path, signed_image_path, record['worker'], debug_path=debug_path
+            pdf_file = self._generate_report_files(
+                export_data, record['worker'], signature_cfg,
+                effects_params, include_work_time
             )
-            image_to_embed = signed_image_path if success else base_image_path
-            if not success:
-                logger.warning(f"서명 이미지 생성 실패: {msg}. 기본 이미지로 대체합니다.")
-
-            from models.excel_exporter import ExcelExporter
-            exporter = ExcelExporter()
-            excel_file = exporter.export_to_excel(
-                export_data,
-                include_image=True,
-                image_path=image_to_embed,
-                include_work_time=include_work_time
-            )
-
-            if success and os.path.exists(signed_image_path):
-                try:
-                    os.remove(signed_image_path)
-                except Exception:
-                    pass
-
-            if excel_file:
-                pdf_file = exporter.export_to_pdf(excel_file, effects_params)
-                if pdf_file:
-                    logger.info(f"기존 기록 재출력 완료: {pdf_file}")
-                    return pdf_file
-            return None
+            if pdf_file:
+                logger.info(f"기존 기록 재출력 완료: {pdf_file}")
+            return pdf_file
         except Exception as e:
             logger.error(f"기존 기록 재출력 오류: {e}", exc_info=True)
             return None

@@ -11,6 +11,7 @@ import os
 import shutil
 
 import pandas as pd
+from typing import List
 
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QComboBox, QCompleter, QDateEdit, QDialog,
@@ -474,9 +475,17 @@ class RecordViewDialog(QDialog):
             logger.error(f"상세 조회 오류: {e}")
             QMessageBox.critical(self, "오류", f"상세 정보를 표시하는 중 오류가 발생했습니다.\n{e}")
 
+    def _get_checked_lots(self) -> List[str]:
+        """체크된 행의 제품 LOT 번호 목록을 반환합니다."""
+        return [
+            self.table.item(i, 1).text()
+            for i in range(self.table.rowCount())
+            if self.table.item(i, 0).checkState() == Qt.Checked
+        ]
+
     def export_selected_record(self):
         """선택된 기록의 엑셀/PDF 재출력"""
-        checked_items = [self.table.item(i, 1).text() for i in range(self.table.rowCount()) if self.table.item(i, 0).checkState() == Qt.Checked]
+        checked_items = self._get_checked_lots()
         if not checked_items:
             QMessageBox.warning(self, "경고", "출력할 기록을 선택하세요.")
             return
@@ -519,7 +528,7 @@ class RecordViewDialog(QDialog):
 
     def delete_selected_record(self):
         """선택된 기록 삭제"""
-        checked_items = [self.table.item(i, 1).text() for i in range(self.table.rowCount()) if self.table.item(i, 0).checkState() == Qt.Checked]
+        checked_items = self._get_checked_lots()
         if not checked_items:
             QMessageBox.warning(self, "경고", "삭제할 기록을 선택하세요.")
             return

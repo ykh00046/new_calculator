@@ -56,7 +56,8 @@ class MainWindow(FluentWindow):
         self.setWindowTitle("DHR 배합 프로그램")
         self.resize(1200, 800) # Window size increased
         # 창 항상 맨 위 설정
-        self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
+        if config.get("ui.window_stays_on_top", True):
+            self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
 
         self.data_manager = DataManager()
         # self.worker_name = None # WorkInfoPanel에서 관리됨

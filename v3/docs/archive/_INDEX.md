@@ -8,6 +8,8 @@
 | ------------------------------------------------ | --------- | ------------- | ---------------- |
 | [CHANGELOG.md](./CHANGELOG.md)                   | docs/     | 2026-01-31    | PDCA 구조 재편성 |
 | [EXCEL_IMPROVEMENTS.md](./EXCEL_IMPROVEMENTS.md) | docs/     | 2026-01-31    | PDCA 구조 재편성 |
+| [info_issues_fix.analysis.md](./2026-02/info-issues-fix/info_issues_fix.analysis.md) | 03-analysis/features/ | 2026-02-07 | PDCA 사이클 #2 완료 |
+| [info_issues_fix.report.md](./2026-02/info-issues-fix/info_issues_fix.report.md) | 04-report/features/ | 2026-02-07 | PDCA 사이클 #2 완료 |
 
 ## Note
 

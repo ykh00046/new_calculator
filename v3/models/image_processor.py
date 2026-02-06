@@ -3,6 +3,7 @@ import numpy as np
 import random
 import os
 import glob
+from typing import Optional, Tuple
 from utils.logger import logger
 
 class ImageProcessor:
@@ -160,6 +161,79 @@ class ImageProcessor:
         base.paste(blended_roi, box, mask=a_top)
         return base
 
+    def _prepare_signature_alpha(self, proc_image: Image.Image, base_name: str,
+                                debug_path: Optional[str]) -> Image.Image:
+        """Blur, closing, clamping, and ink-effect processing on the alpha channel."""
+        r, g, b, alpha = proc_image.split()
+        alpha = alpha.filter(ImageFilter.GaussianBlur(self.config.get('gaussian_blur_sigma', 0.7)))
+        if debug_path:
+            alpha.save(os.path.join(debug_path, f"{base_name}_alpha_1_gaussian_blur.png"))
+
+        # Closing operation to fill small holes
+        alpha = alpha.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.MinFilter(3))
+        if debug_path:
+            alpha.save(os.path.join(debug_path, f"{base_name}_alpha_2_closing.png"))
+
+        # Set a minimum alpha value to prevent excessive transparency
+        min_alpha = int(255 * 0.35)
+        alpha = alpha.point(lambda p: max(p, min_alpha) if p > 0 else 0)
+        if debug_path:
+            alpha.save(os.path.join(debug_path, f"{base_name}_alpha_3_clamping.png"))
+
+        # Simulate ink properties
+        alpha = self._pressure_noise(alpha, self.config.get('pressure_noise_strength', 0.0))
+        if debug_path:
+            alpha.save(os.path.join(debug_path, f"{base_name}_alpha_4_pressure_noise.png"))
+        alpha = alpha.point(lambda p: min(255, int(p * self.config.get('ink_alpha_factor', 1.5))))
+        if debug_path:
+            alpha.save(os.path.join(debug_path, f"{base_name}_alpha_5_ink_alpha_factor.png"))
+
+        proc_image.putalpha(alpha)
+        return proc_image
+
+    def _apply_enhancements(self, proc_image: Image.Image) -> Image.Image:
+        """Apply unsharp mask, sRGB conversion, and brightness correction."""
+        proc_image = self._unsharp_mask(
+            proc_image, **self.config.get('unsharp_mask', {'radius': 1.0, 'percent': 120, 'threshold': 2})
+        )
+        proc_image = self._to_srgb(proc_image)
+        brightness_factor = self.config.get('signature_brightness_factor', 1.0)
+        if brightness_factor != 1.0:
+            enhancer = ImageEnhance.Brightness(proc_image)
+            proc_image = enhancer.enhance(brightness_factor)
+        return proc_image
+
+    def _apply_transform(self, proc_image: Image.Image, base_x: int, base_y: int,
+                         base_name: str, debug_path: Optional[str]) -> Tuple[Image.Image, int, int]:
+        """Scale, rotate, and compute paste position for a signature."""
+        final_w = int(self.config.get('target_width', 70) * 0.9)
+        final_h = int(self.config.get('target_height', 28) * 0.9)
+        final_signature = proc_image.resize((final_w, final_h), Image.Resampling.LANCZOS)
+
+        rand_cfg = self.config.get('randomization', {
+            'rotation_angle': 6, 'offset_x': 3, 'offset_y': 5,
+            'scale_min': 0.85, 'scale_max': 0.90
+        })
+        scale = random.uniform(rand_cfg['scale_min'], rand_cfg['scale_max'])
+        angle = random.uniform(-rand_cfg['rotation_angle'], rand_cfg['rotation_angle'])
+        offset_x_rand = random.randint(-rand_cfg['offset_x'], rand_cfg['offset_x'])
+        offset_y_rand = random.randint(-rand_cfg['offset_y'], rand_cfg['offset_y'])
+
+        logger.debug(f"Rand Params: scale={scale:.2f}, angle={angle:.2f}, offset=({offset_x_rand}, {offset_y_rand})")
+
+        scaled_w, scaled_h = int(final_w * scale), int(final_h * scale)
+        final_signature = final_signature.resize((scaled_w, scaled_h), Image.Resampling.LANCZOS)
+        rotated_sig = final_signature.rotate(angle, expand=True, resample=Image.Resampling.BICUBIC)
+
+        if rotated_sig.mode == 'RGBA' and debug_path:
+            rotated_alpha = rotated_sig.getchannel('A')
+            reinforced_alpha_visual = rotated_alpha.filter(ImageFilter.MaxFilter(1)).filter(ImageFilter.MinFilter(1))
+            reinforced_alpha_visual.save(os.path.join(debug_path, f"{base_name}_alpha_6_reinforced_after_rotation.png"))
+
+        paste_x = base_x + offset_x_rand - (rotated_sig.width - scaled_w) // 2
+        paste_y = base_y + offset_y_rand - (rotated_sig.height - scaled_h) // 2
+        return rotated_sig, paste_x, paste_y
+
     def create_signed_image(self, base_image_path, output_path, selected_worker, debug_path=None):
         """
         Creates a high-realism signed image by applying a sophisticated processing pipeline.
@@ -172,16 +246,10 @@ class ImageProcessor:
 
             charge_base_name = f"{selected_worker}_charge"
             include = self.config.get('include', {
-                'charge': True,
-                'review': True,
-                'approve': True,
+                'charge': True, 'review': True, 'approve': True,
             })
-            
-            # Get positions from config or use defaults
             positions = self.config.get('positions', {
-                'charge': [160, 57],
-                'review': [222, 54],
-                'approve': [288, 53]
+                'charge': [160, 57], 'review': [222, 54], 'approve': [288, 53]
             })
 
             signatures_info = []
@@ -203,90 +271,20 @@ class ImageProcessor:
 
                 logger.debug(f"Processing signature '{base_name}' from '{os.path.basename(sig_path)}'")
                 signature_image = Image.open(sig_path).convert("RGBA")
-                
                 up_factor = self.config.get('upsample_factor', 4)
                 up_w, up_h = signature_image.width * up_factor, signature_image.height * up_factor
                 proc_image = signature_image.resize((up_w, up_h), Image.Resampling.LANCZOS)
-
                 proc_image = self._to_linear(proc_image)
-                r, g, b, alpha = proc_image.split() # Ensure this is only once and correctly extracts alpha
-                alpha = alpha.filter(ImageFilter.GaussianBlur(self.config.get('gaussian_blur_sigma', 0.7)))
-                if debug_path:
-                    alpha.save(os.path.join(debug_path, f"{base_name}_alpha_1_gaussian_blur.png"))
-                
-                # --- Alpha Pre-processing: Closing + Clamping ---
-                # Closing operation to fill small holes
-                alpha = alpha.filter(ImageFilter.MaxFilter(3)).filter(ImageFilter.MinFilter(3))
-                if debug_path:
-                    alpha.save(os.path.join(debug_path, f"{base_name}_alpha_2_closing.png"))
-                # Set a minimum alpha value to prevent excessive transparency
-                min_alpha = int(255 * 0.35)
-                alpha = alpha.point(lambda p: max(p, min_alpha) if p > 0 else 0)
-                if debug_path:
-                    alpha.save(os.path.join(debug_path, f"{base_name}_alpha_3_clamping.png"))
-                
-                # --- Simulate Ink Properties ---
-                alpha = self._pressure_noise(alpha, self.config.get('pressure_noise_strength', 0.0))
-                if debug_path:
-                    alpha.save(os.path.join(debug_path, f"{base_name}_alpha_4_pressure_noise.png"))
-                alpha = alpha.point(lambda p: min(255, int(p * self.config.get('ink_alpha_factor', 1.5))))
-                if debug_path:
-                    alpha.save(os.path.join(debug_path, f"{base_name}_alpha_5_ink_alpha_factor.png"))
-                proc_image.putalpha(alpha)
 
-                # proc_image = self._mesh_warp(proc_image, self.config['mesh_warp']['grid_size'], self.config['mesh_warp']['jitter_amount']) # GEOMETRIC DISTORTION DISABLED as per user request
-                proc_image = self._unsharp_mask(proc_image, **self.config.get('unsharp_mask', {'radius': 1.0, 'percent': 120, 'threshold': 2}))
-                
-                proc_image = self._to_srgb(proc_image)
-                
-                # Apply brightness enhancement
-                brightness_factor = self.config.get('signature_brightness_factor', 1.0)
-                if brightness_factor != 1.0:
-                    enhancer = ImageEnhance.Brightness(proc_image)
-                    proc_image = enhancer.enhance(brightness_factor)
-                
-                final_w = int(self.config.get('target_width', 70) * 0.9)  # 90% size: 70 -> 63
-                final_h = int(self.config.get('target_height', 28) * 0.9)  # 90% size: 28 -> 25
-                final_signature = proc_image.resize((final_w, final_h), Image.Resampling.LANCZOS)
-
-                rand_cfg = self.config.get('randomization', {
-                    'rotation_angle': 6, 'offset_x': 3, 'offset_y': 5,
-                    'scale_min': 0.85, 'scale_max': 0.90
-                })
-                scale = random.uniform(rand_cfg['scale_min'], rand_cfg['scale_max'])
-                angle = random.uniform(-rand_cfg['rotation_angle'], rand_cfg['rotation_angle'])
-                offset_x_rand = random.randint(-rand_cfg['offset_x'], rand_cfg['offset_x'])
-                offset_y_rand = random.randint(-rand_cfg['offset_y'], rand_cfg['offset_y'])
-
-                logger.debug(f"Rand Params: scale={scale:.2f}, angle={angle:.2f}, offset=({offset_x_rand}, {offset_y_rand})")
-
-                scaled_w, scaled_h = int(final_w * scale), int(final_h * scale)
-                final_signature = final_signature.resize((scaled_w, scaled_h), Image.Resampling.LANCZOS)
-                
-                rotated_sig = final_signature.rotate(angle, expand=True, resample=Image.Resampling.BICUBIC)
-
-                # --- Reinforce alpha after rotation to prevent thinning (DISABLED as per user request) ---
-                if rotated_sig.mode == 'RGBA':
-                    rotated_alpha = rotated_sig.getchannel('A')
-                    # We still save this for debugging purposes, even if not applied
-                    if debug_path:
-                        reinforced_alpha_visual = rotated_alpha.filter(ImageFilter.MaxFilter(1)).filter(ImageFilter.MinFilter(1))
-                        reinforced_alpha_visual.save(os.path.join(debug_path, f"{base_name}_alpha_6_reinforced_after_rotation.png"))
-                    # The actual application of reinforced_alpha is commented out
-                    # rotated_sig.putalpha(reinforced_alpha) # DISABLED
-
-                offset_x = base_x + offset_x_rand
-                offset_y = base_y + offset_y_rand
-                
-                paste_x = offset_x - (rotated_sig.width - scaled_w) // 2
-                paste_y = offset_y - (rotated_sig.height - scaled_h) // 2
-
-                # Use _multiply_blend as per earlier discussion, original was base_image.paste
+                proc_image = self._prepare_signature_alpha(proc_image, base_name, debug_path)
+                proc_image = self._apply_enhancements(proc_image)
+                rotated_sig, paste_x, paste_y = self._apply_transform(
+                    proc_image, base_x, base_y, base_name, debug_path
+                )
                 base_image = self._multiply_blend(base_image, rotated_sig, (paste_x, paste_y))
 
-
             # 최종 이미지 전체에 대비 효과 적용
-            final_contrast = self.config.get('final_contrast_factor', 1.5) # Modified
+            final_contrast = self.config.get('final_contrast_factor', 1.5)
             if final_contrast != 1.0:
                 enhancer = ImageEnhance.Contrast(base_image)
                 base_image = enhancer.enhance(final_contrast)
