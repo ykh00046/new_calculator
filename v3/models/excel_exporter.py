@@ -128,21 +128,26 @@ class ExcelExporter:
             workbook.Worksheets(1).ExportAsFixedFormat(0, abs_pdf_path)
             logger.debug(f"임시 PDF 생성 완료: {pdf_path}")
         finally:
-            if workbook:
-                workbook.Close(SaveChanges=False)
-            if excel:
-                excel.Quit()
+            try:
+                if workbook:
+                    workbook.Close(SaveChanges=False)
+            except Exception:
+                logger.warning("Excel workbook 닫기 실패")
+            try:
+                if excel:
+                    excel.Quit()
+            except Exception:
+                logger.warning("Excel 프로세스 종료 실패")
 
     def _pdf_to_images(self, pdf_path, params: dict):
         """PDF를 Pillow 이미지 목록으로 변환 (PyMuPDF 사용)"""
         images = []
-        doc = fitz.open(pdf_path)
         dpi = params.get("dpi", 250)
-        for page in doc:
-            pix = page.get_pixmap(dpi=dpi)
-            img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
-            images.append(img)
-        doc.close()
+        with fitz.open(pdf_path) as doc:
+            for page in doc:
+                pix = page.get_pixmap(dpi=dpi)
+                img = Image.frombytes("RGB", [pix.width, pix.height], pix.samples)
+                images.append(img)
         logger.debug(f"PDF를 이미지로 변환 완료: {len(images)} 페이지, DPI: {dpi}")
         return images
 

@@ -4,8 +4,11 @@
 모든 설정값들을 여기서 관리합니다.
 """
 
+import logging
 import os
 import sys
+
+_logger = logging.getLogger(__name__)
 
 
 # 기본 경로 설정
@@ -40,7 +43,8 @@ def _resolve_user_data_dir():
         try:
             os.makedirs(path, exist_ok=True)
             return path
-        except Exception:
+        except Exception as e:
+            _logger.warning(f"데이터 디렉토리 생성 실패 ({path}): {e}")
             continue
     return BASE_PATH
 

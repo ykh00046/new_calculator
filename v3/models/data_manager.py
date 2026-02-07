@@ -282,6 +282,15 @@ class DataManager:
         except Exception as e:
             logger.error(f"실적서 생성 중 오류 발생: {e}", exc_info=True)
     
+    def get_mixing_records(self, start_date: Optional[str] = None, end_date: Optional[str] = None,
+                           worker: Optional[str] = None, recipe_name: Optional[str] = None,
+                           limit: int = 100) -> List[Dict]:
+        """배합 기록을 조건 조회합니다."""
+        return self.db_manager.get_mixing_records(
+            start_date=start_date, end_date=end_date,
+            worker=worker, recipe_name=recipe_name, limit=limit
+        )
+
     def get_all_records_df(self) -> pd.DataFrame:
         """모든 배합 기록을 DataFrame으로 반환합니다 (단일 JOIN 쿼리)."""
         try:

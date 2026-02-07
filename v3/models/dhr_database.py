@@ -370,8 +370,8 @@ class DhrDatabaseManager:
             return recipe_id
     
     @handle_exceptions(user_message="레시피 조회 중 오류가 발생했습니다.", default_return=[])
-    def get_recipes(self, company: str = None, product_type: str = None, 
-                    drug: str = None, wear_period: str = None) -> List[Dict]:
+    def get_recipes(self, company: Optional[str] = None, product_type: Optional[str] = None,
+                    drug: Optional[str] = None, wear_period: Optional[str] = None) -> List[Dict]:
         """조건에 맞는 레시피 목록을 조회합니다."""
         with self.get_connection() as conn:
             query = "SELECT * FROM dhr_recipes WHERE is_active = 1"

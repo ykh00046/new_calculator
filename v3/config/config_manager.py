@@ -11,10 +11,13 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
 import os
 from typing import Any, Dict, Optional, Tuple
 
 from config.settings import BASE_PATH, USER_DATA_DIR
+
+_logger = logging.getLogger(__name__)
 
 
 class Config:
@@ -40,8 +43,8 @@ class Config:
                     self._data = json.load(f)
             else:
                 self._data = {}
-        except Exception:
-            # Malformed JSON or read error: keep empty config for safe defaults
+        except Exception as e:
+            _logger.warning(f"설정 파일 로드 실패 (기본값 사용): {e}")
             self._data = {}
 
     def get(self, dotted_key: str, default: Any = None) -> Any:
@@ -54,7 +57,8 @@ class Config:
                 else:
                     return default
             return node
-        except Exception:
+        except Exception as e:
+            _logger.warning(f"설정값 조회 실패 ({dotted_key}): {e}")
             return default
 
     # Convenience properties used in settings
@@ -66,7 +70,8 @@ class Config:
     def tolerance(self) -> float:
         try:
             return float(self.get("mixing.tolerance", 0.05))
-        except Exception:
+        except Exception as e:
+            _logger.warning(f"tolerance 변환 실패: {e}")
             return 0.05
 
     @property
@@ -97,7 +102,8 @@ class Config:
                 self._data['scan_effects'] = {}
             self._data['scan_effects'].update(effects_data)
             return self._save_config()
-        except Exception:
+        except Exception as e:
+            _logger.warning(f"스캔 효과 저장 실패: {e}")
             return False
 
     def save_workers(self, workers: list) -> bool:
@@ -107,7 +113,8 @@ class Config:
                 self._data['mixing'] = {}
             self._data['mixing']['workers'] = workers
             return self._save_config()
-        except Exception:
+        except Exception as e:
+            _logger.warning(f"작업자 목록 저장 실패: {e}")
             return False
 
     def save_last_worker(self, worker_name: str) -> bool:
@@ -117,7 +124,8 @@ class Config:
                 self._data['mixing'] = {}
             self._data['mixing']['last_worker'] = worker_name
             return self._save_config()
-        except Exception:
+        except Exception as e:
+            _logger.warning(f"마지막 작업자 저장 실패: {e}")
             return False
 
     def _get_admin_password(self) -> str:
@@ -180,7 +188,8 @@ class Config:
         try:
             salt = base64.b64decode(salt_b64.encode("utf-8"))
             expected = base64.b64decode(hash_b64.encode("utf-8"))
-        except Exception:
+        except Exception as e:
+            _logger.warning(f"비밀번호 검증 디코딩 실패: {e}")
             return False
         dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 200000)
         return hmac.compare_digest(dk, expected)
@@ -192,7 +201,8 @@ class Config:
             with open(self._config_path, "w", encoding="utf-8") as f:
                 json.dump(self._data, f, indent=2, ensure_ascii=False)
             return True
-        except Exception:
+        except Exception as e:
+            _logger.error(f"설정 파일 저장 실패 ({self._config_path}): {e}")
             return False
 
 

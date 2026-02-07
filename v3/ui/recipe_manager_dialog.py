@@ -503,7 +503,8 @@ class RecipeManagerDialog(QDialog):
 
             df = pd.DataFrame(data)
 
-            df.to_excel(self.data_manager.recipe_file, index=False, engine='openpyxl')
+            from config.settings import RECIPE_FILE
+            df.to_excel(RECIPE_FILE, index=False, engine='openpyxl')
 
 
 

@@ -8,8 +8,6 @@
 
 import os
 
-import shutil
-
 import pandas as pd
 from typing import List
 
@@ -426,7 +424,7 @@ class RecordViewDialog(QDialog):
         try:
             start = self.start_date.date().toString("yyyy-MM-dd")
             end = self.end_date.date().toString("yyyy-MM-dd")
-            records = self.data_manager.db_manager.get_mixing_records(start_date=start, end_date=end)
+            records = self.data_manager.get_mixing_records(start_date=start, end_date=end)
             self.table.setRowCount(len(records))
             for row, record in enumerate(records):
                 chk_box_item = QTableWidgetItem()

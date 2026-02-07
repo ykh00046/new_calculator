@@ -16,69 +16,18 @@ from ui.components import StyledButton, create_group_box, center_window
 from ui.styles import UIStyles, UITheme
 from ui.panels.scan_effects_panel import ScanEffectsPanel
 from ui.panels.signature_panel import SignaturePanel
+from ui.widgets.pasteable_table import BasePasteableTableWidget, PasteableTableWidget, PasteableSimpleTableWidget
 from config.config_manager import config
 from utils.logger import logger
+from utils.bulk_helpers import parse_date_cell, parse_bulk_entries, get_materials_from_table
 from models.dhr_database import DhrDatabaseManager
 from models.dhr_bulk_generator import DhrBulkGenerator
 from qfluentwidgets import (
     CardWidget, LineEdit, DateEdit, TimeEdit, CheckBox, TableWidget
 )
 
-class BasePasteableTableWidget(TableWidget):
-    """엑셀 붙여넣기 지원 기반 테이블 클래스"""
-    READONLY_COLUMNS: list = []
-    READONLY_BG_COLOR: str = UITheme.READONLY_BG
-    
-    def keyPressEvent(self, event):
-        if event.matches(QKeySequence.Paste):
-            self._paste_from_clipboard()
-            event.accept()
-            return
-        super().keyPressEvent(event)
-    
-    def _paste_from_clipboard(self):
-        clipboard = QApplication.clipboard()
-        text = clipboard.text()
-        if not text: return
-        
-        start_row = self.currentRow()
-        start_col = self.currentColumn()
-        if start_row < 0: start_row = 0
-        if start_col < 0: start_col = 0
-        
-        lines = text.strip().split('\n')
-        for row_offset, line in enumerate(lines):
-            cells = line.split('\t')
-            target_row = start_row + row_offset
-            while target_row >= self.rowCount():
-                self._add_empty_row()
-            for col_offset, value in enumerate(cells):
-                target_col = start_col + col_offset
-                if target_col < self.columnCount():
-                    item = self.item(target_row, target_col)
-                    if item is None:
-                        item = QTableWidgetItem("")
-                        self.setItem(target_row, target_col, item)
-                    if item.flags() & Qt.ItemIsEditable:
-                        item.setText(value.strip())
-        logger.info(f"붙여넣기 완료: {len(lines)}행")
-    
-    def _add_empty_row(self):
-        row = self.rowCount()
-        self.insertRow(row)
-        for c in range(self.columnCount()):
-            item = QTableWidgetItem("")
-            if c in self.READONLY_COLUMNS:
-                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-                item.setBackground(QColor(self.READONLY_BG_COLOR))
-            self.setItem(row, c, item)
 
-class PasteableSimpleTableWidget(BasePasteableTableWidget):
-    """일괄 생성용 테이블"""
-    READONLY_COLUMNS = []
 
-class PasteableTableWidget(BasePasteableTableWidget):
-    """자재 테이블용"""
     READONLY_COLUMNS = [3]  # 이론계량
 
 class BulkCreationInterface(QScrollArea):
@@ -272,61 +221,13 @@ class BulkCreationInterface(QScrollArea):
             self.mat_table.setItem(row, 2, QTableWidgetItem(str(mat.get('ratio', ''))))
 
     def _parse_date_cell(self, value: str) -> str:
-        raw = (value or "").strip()
-        if not raw: return ""
-        try:
-            num = float(raw)
-            if num > 0:
-                base = datetime(1899, 12, 30)
-                dt = base + timedelta(days=num)
-                return dt.strftime("%Y-%m-%d")
-        except ValueError: pass
-        
-        candidates = ["%Y-%m-%d", "%Y/%m/%d", "%Y.%m.%d", "%m/%d/%Y", "%m-%d-%Y"]
-        for fmt in candidates:
-            try:
-                dt = datetime.strptime(raw, fmt)
-                return dt.strftime("%Y-%m-%d")
-            except ValueError: continue
-        return ""
+        return parse_date_cell(value)
 
     def _parse_bulk_entries(self):
-        entries = []
-        for r in range(self.bulk_table.rowCount()):
-            date_item = self.bulk_table.item(r, 0)
-            amount_item = self.bulk_table.item(r, 1)
-            date_text = date_item.text().strip() if date_item else ""
-            amount_text = amount_item.text().strip() if amount_item else ""
-
-            if not date_text and not amount_text: continue
-            if not date_text or not amount_text: raise ValueError(f"{r+1}행: 날짜와 양을 모두 입력하세요.")
-
-            work_date = self._parse_date_cell(date_text)
-            if not work_date: raise ValueError(f"{r+1}행: 날짜 오류")
-            
-            try: amount = float(amount_text)
-            except ValueError: raise ValueError(f"{r+1}행: 배합량 숫자 오류")
-            
-            entries.append({"date": work_date, "amount": amount, "row": r + 1})
-        return entries
+        return parse_bulk_entries(self.bulk_table)
 
     def _get_materials_for_bulk(self):
-        materials = []
-        for r in range(self.mat_table.rowCount()):
-            code_item = self.mat_table.item(r, 0)
-            name_item = self.mat_table.item(r, 1)
-            ratio_item = self.mat_table.item(r, 2)
-            code = code_item.text().strip() if code_item else ""
-            name = name_item.text().strip() if name_item else ""
-            
-            if not code and not name: continue
-            try: ratio = float(ratio_item.text()) if ratio_item else 0.0
-            except ValueError: ratio = 0.0
-            
-            materials.append({"code": code, "name": name, "ratio": ratio})
-        
-        if not materials: raise ValueError("자재 정보를 입력하세요.")
-        return materials
+        return get_materials_from_table(self.mat_table)
 
     def _bulk_create(self):
         product_name = self.product_name_edit.text().strip()
