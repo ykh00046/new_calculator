@@ -27,8 +27,8 @@ def seed_recipe(db: DhrDatabaseManager, recipe_name: str):
         "default_amount": 1000,
     }
     materials = [
-        {"material_code": "MAT001", "material_name": "??1", "ratio": 60},
-        {"material_code": "MAT002", "material_name": "??2", "ratio": 40},
+        {"material_code": "MAT001", "material_name": "원료1", "ratio": 60},
+        {"material_code": "MAT002", "material_name": "원료2", "ratio": 40},
     ]
     db.save_recipe(recipe, materials)
 
@@ -52,8 +52,8 @@ def main():
             entries=entries,
             product_name="TEST_RECIPE",
             materials=[
-                {"code": "MAT001", "name": "??1", "ratio": 60},
-                {"code": "MAT002", "name": "??2", "ratio": 40},
+                {"code": "MAT001", "name": "원료1", "ratio": 60},
+                {"code": "MAT002", "name": "원료2", "ratio": 40},
             ],
             worker="TEST",
             include_time=True,

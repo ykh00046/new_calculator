@@ -319,19 +319,19 @@ class MainWindow(FluentWindow):
             self._refresh_dashboard()
 
     def _clear_table(self):
-        """???? ??LOT ? ???? ??? ???"""
-        logger.info("??? ?? ??? ??.")
+        """테이블 자재LOT 및 실제배합 입력값 초기화"""
+        logger.info("테이블 입력 초기화 시작.")
         self.material_panel.clear_table()
         self._update_actions_enabled(False)
-        self._set_status_message("???? ????????.")
-        logger.info("??? ??? ??.")
+        self._set_status_message("테이블이 초기화되었습니다.")
+        logger.info("테이블 초기화 완료.")
 
     def auto_assign_lots(self):
-        """???? ???? ?? ??? ???? ?????."""
+        """자재별로 작업일자 기준 적합한 자재LOT을 자동배정합니다."""
         work_date = self.work_info_panel.get_data().get("work_date")
-        logger.info(f"?? ?? ?? ?? (????: {work_date})")
+        logger.info(f"자동 LOT 배정 시작 (작업일자: {work_date})")
         self.material_panel.auto_assign_lots(work_date)
-        self._set_status_message("?? ?? ?? ??")
+        self._set_status_message("자동 LOT 배정 완료")
 
     def _open_records(self):
         def _action():
@@ -342,7 +342,7 @@ class MainWindow(FluentWindow):
         self._run_dialog_action("open_records", _action)
 
     def _open_pdf_settings(self):
-        """PDF/?? ?? ????? ??"""
+        """PDF/서명 설정 다이얼로그 열기"""
         def _action():
             if hasattr(self, '_pdf_settings_dialog') and self._pdf_settings_dialog.isVisible():
                 self._pdf_settings_dialog.raise_()
@@ -364,7 +364,7 @@ class MainWindow(FluentWindow):
             logger.log_error_with_context(e, {"context": context})
 
     def _load_recipes(self):
-        """??? ?? ??"""
+        """레시피 목록 로드"""
         self.recipe_controller.load_recipes()
 
     def _on_recipe_changed(self, recipe_name: str):
@@ -375,7 +375,7 @@ class MainWindow(FluentWindow):
         self._update_actions_enabled(False)
 
     def _recalc_theory(self):
-        """??? ??? ?? ???? ???"""
+        """배합량 변경시 이론 계량값을 재계산"""
         amount = self.recipe_panel.get_amount()
         self.material_panel.update_theory(amount)
 
@@ -385,10 +385,10 @@ class MainWindow(FluentWindow):
     def _set_save_button_state(self, enabled: bool) -> None:
         self.save_btn.setEnabled(enabled)
         if enabled:
-            self.save_btn.setText("?? ??")
+            self.save_btn.setText("배합 저장")
             self.save_btn.setStyleSheet(UIStyles.get_primary_button_style())
         else:
-            self.save_btn.setText("?? ??")
+            self.save_btn.setText("배합 저장")
             self.save_btn.setStyleSheet(UIStyles.get_primary_button_style())
 
     def _handle_recipe_cleared(self) -> None:
@@ -412,14 +412,14 @@ class MainWindow(FluentWindow):
 
     def _handle_save_validation_error(self, error_msg: str) -> None:
         self._set_status_message(error_msg)
-        self.show_warning("?? ??", error_msg)
+        self.show_warning("입력 오류", error_msg)
 
     def _handle_save_success(self, lot: str) -> None:
         self._set_status_message(
-            f"?? ?? (DB/??): LOT {lot} | ??/PDF ??? '?? ??' ??? ?????."
+            f"배합 저장 (DB/백업): LOT {lot} | 엑셀/PDF 출력은 '기록 조회' 화면을 이용하세요."
         )
-        logger.info(f"?? ??: LOT {lot}")
-        self.show_success("?? ??", f"LOT: {lot} ??? ???????.")
+        logger.info(f"배합 완료: LOT {lot}")
+        self.show_success("저장 완료", f"LOT: {lot} 저장이 완료되었습니다.")
         self.material_panel.clear_table()
         reset_mode = config.get("ui.save_reset_mode", "safe")
         if reset_mode == "safe":
@@ -428,5 +428,5 @@ class MainWindow(FluentWindow):
 
     def _handle_save_error(self, error: Exception) -> None:
         logger.log_error_with_context(error, {"context": "save_record"})
-        self._set_status_message("?? ? ??? ??????.")
-        self.show_error("?? ??", f"?? ? ??? ??????: {error}")
+        self._set_status_message("저장 중 오류가 발생했습니다.")
+        self.show_error("저장 실패", f"저장 중 오류가 발생했습니다: {error}")

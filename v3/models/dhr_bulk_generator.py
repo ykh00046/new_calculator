@@ -59,7 +59,7 @@ class DhrBulkGenerator:
         for d in unique_dates:
             ok, missing, lot_map = self._validate_material_lots_for_date(d, materials)
             if not ok:
-                raise ValueError(f"{d} ?? LOT? ?? ? ?? ??? ????. ?? ????: {', '.join(missing)}")
+                raise ValueError(f"{d} 날짜 LOT를 찾을 수 없는 자재가 있습니다. 해당 품목코드: {', '.join(missing)}")
             lot_map_by_date[d] = lot_map
 
         last_time_by_date = {}

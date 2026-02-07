@@ -30,7 +30,7 @@ async def main():
     """
     Temporary script to regenerate a PDF for an existing record.
     """
-    print("PDF ??? ???? ?????...")
+    print("PDF 재출력 기능을 시작합니다...")
     data_manager = DataManager()
 
     # Get default scan effects from config
@@ -39,26 +39,26 @@ async def main():
     args = _parse_args()
     product_lot = args.lot
 
-    print(f"LOT: {product_lot}? ?? PDF? ??????.")
-    print(f"??? ?? ?? ????: {effects_params}")
+    print(f"LOT: {product_lot}에 대한 PDF를 재생성합니다.")
+    print(f"스캔 효과 설정 파라미터: {effects_params}")
 
     if args.skip_export:
-        print("???: PDF ??? ?? (--skip-export)")
+        print("건너뜀: PDF 재출력 생략 (--skip-export)")
         return
 
     # Regenerate the PDF (with timeout)
     pdf_file = await _export_with_timeout(data_manager, product_lot, effects_params, args.timeout)
 
     if pdf_file:
-        print(f"??: PDF? ?? ??? ????????: {pdf_file}")
+        print(f"성공: PDF가 아래 경로에 생성되었습니다: {pdf_file}")
     else:
-        print("??: PDF ???? ??????.")
+        print("실패: PDF 파일이 생성되지 않았습니다.")
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except asyncio.TimeoutError:
-        print("????: PDF ???? ?? ?? ? ???? ?????.")
+        print("시간초과: PDF 재생성이 제한 시간 내 완료되지 못했습니다.")
     except Exception as e:
-        print(f"???? ?? ? ?? ??: {e}")
+        print(f"예기치 않은 오류가 발생: {e}")

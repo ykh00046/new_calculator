@@ -144,7 +144,7 @@ class DhrDatabaseManager:
     
     @handle_exceptions(user_message="DHR 기록 저장 중 오류가 발생했습니다.")
     def generate_product_lot(self, product_name: str, work_date: str) -> str:
-        """DHR ???? ?? LOT ??? ?????. (?: {product_name}{YYMMDD}{seq:02d})"""
+        """DHR 제품별로 신규 LOT 번호를 생성합니다. (예: {product_name}{YYMMDD}{seq:02d})"""
         target_date = datetime.strptime(work_date, "%Y-%m-%d")
         date_str = target_date.strftime("%y%m%d")
         base_lot = f"{product_name}{date_str}"
@@ -165,7 +165,7 @@ class DhrDatabaseManager:
                 new_seq = max_seq + 1
                 return f"{base_lot}{new_seq:02d}"
         except Exception as e:
-            logger.error(f"DHR LOT ?? ?? ??: {e}. ????? ?????.")
+            logger.error(f"DHR LOT 번호 생성 실패: {e}. 기본값으로 대체합니다.")
             return f"{base_lot}01"
 
     def save_dhr_record(self, record_data: Dict, details: List[Dict]) -> int:

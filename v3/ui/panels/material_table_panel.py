@@ -152,17 +152,17 @@ class MaterialTablePanel(QWidget):
         self._check_validation()
 
     def auto_assign_lots(self, work_date: str):
-        """???? ?? LOT ?? ??"""
+        """자재별로 자동 LOT 배정 실행"""
         if not work_date:
-            QMessageBox.warning(self, "?? ??", "????? ?? ?????.")
+            QMessageBox.warning(self, "입력 오류", "작업일자를 먼저 선택하세요.")
             return
         try:
             datetime.strptime(work_date, "%Y-%m-%d")
         except ValueError:
-            QMessageBox.warning(self, "?? ??", "????? ?? ?????.")
+            QMessageBox.warning(self, "입력 오류", "작업일자가 올바르지 않습니다.")
             return
 
-        logger.info(f"?? ?? ?? ?? (????: {work_date})")
+        logger.info(f"자동 LOT 배정 시작 (작업일자: {work_date})")
 
         assigned_count = 0
         rowCount = self.table.rowCount()
@@ -179,19 +179,19 @@ class MaterialTablePanel(QWidget):
 
             if lot_number:
                 self._set_item(r, 5, lot_number, editable=True)
-                logger.debug(f"LOT ??: {item_code} -> {lot_number}")
+                logger.debug(f"LOT 배정: {item_code} -> {lot_number}")
                 assigned_count += 1
             else:
                 current_lot = self.table.item(r, 5).text() if self.table.item(r, 5) else ""
                 if not current_lot:
-                    logger.warning(f"LOT ???: {item_code}")
+                    logger.warning(f"LOT 미배정: {item_code}")
 
         self.table.blockSignals(False)
 
         if assigned_count > 0:
-            QMessageBox.information(self, "?? ??", f"{assigned_count}?? ?? LOT? ???????.")
+            QMessageBox.information(self, "배정 완료", f"{assigned_count}개의 자재 LOT이 배정되었습니다.")
         else:
-            QMessageBox.warning(self, "?? ??", "?? ??? ?? ???? ???? ??? ?? ? ????.")
+            QMessageBox.warning(self, "배정 실패", "해당 일자에 맞는 자재LOT 정보를 찾을 수 없습니다.")
 
         self._check_validation()
 

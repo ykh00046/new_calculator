@@ -372,19 +372,19 @@ class DHRManualWindow(FluentWindow):
                 continue
 
             if not date_text or not amount_text:
-                raise ValueError(f"{r+1}?: ????/???? ?? ????.")
+                raise ValueError(f"{r+1}행: 작업일자/배합량이 비어 있습니다.")
 
             work_date = self._parse_date_cell(date_text)
             if not work_date:
-                raise ValueError(f"{r+1}?: ???? ??? ??? ? ????.")
+                raise ValueError(f"{r+1}행: 작업일자 형식을 인식할 수 없습니다.")
 
             try:
                 amount = float(amount_text)
             except ValueError:
-                raise ValueError(f"{r+1}?: ???? ??? ????.")
+                raise ValueError(f"{r+1}행: 배합량이 숫자가 아닙니다.")
 
             if amount <= 0:
-                raise ValueError(f"{r+1}?: ???? 0?? ?? ???.")
+                raise ValueError(f"{r+1}행: 배합량이 0보다 커야 합니다.")
 
             entries.append({"date": work_date, "amount": amount, "row": r + 1})
 
@@ -403,7 +403,7 @@ class DHRManualWindow(FluentWindow):
                 continue
 
             if not code:
-                raise ValueError(f"?? {r+1}?: ????? ?? ????.")
+                raise ValueError(f"재료 {r+1}행: 품목코드가 비어 있습니다.")
 
             try:
                 ratio = float(ratio_item.text()) if ratio_item else 0.0
@@ -413,7 +413,7 @@ class DHRManualWindow(FluentWindow):
             materials.append({"code": code, "name": name, "ratio": ratio})
 
         if not materials:
-            raise ValueError("??? ??? ?? ????. ???? ?? ?????.")
+            raise ValueError("재료가 하나도 없어 진행할 수 없습니다. 테이블을 확인해 주세요.")
 
         return materials
 

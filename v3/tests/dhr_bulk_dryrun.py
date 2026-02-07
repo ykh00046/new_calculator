@@ -14,7 +14,7 @@ def parse_tsv(path: Path):
             continue
         parts = line.split('	')
         if len(parts) < 2:
-            raise ValueError(f"{idx}?: ??? ?????.")
+            raise ValueError(f"{idx}행: 형식이 올바르지 않습니다.")
         date = parts[0].strip()
         amount = float(parts[1].strip())
         entries.append({"date": date, "amount": amount, "row": idx})
@@ -29,7 +29,7 @@ def load_recipe_materials(db: DhrDatabaseManager, recipe_name: str):
             recipe = r
             break
     if not recipe:
-        raise ValueError(f"???? ?? ? ????: {recipe_name}")
+        raise ValueError(f"레시피를 찾을 수 없습니다: {recipe_name}")
 
     materials = db.get_recipe_materials(recipe['id'])
     result = []
