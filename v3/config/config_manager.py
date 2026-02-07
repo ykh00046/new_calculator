@@ -12,7 +12,7 @@ import hashlib
 import hmac
 import json
 import os
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 from config.settings import BASE_PATH, USER_DATA_DIR
 
@@ -167,7 +167,7 @@ class Config:
             del admin["password"]
         return self._save_config()
 
-    def _hash_password(self, password: str, salt: bytes = None) -> Tuple[str, str]:
+    def _hash_password(self, password: str, salt: Optional[bytes] = None) -> Tuple[str, str]:
         if salt is None:
             salt = os.urandom(16)
         dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 200000)

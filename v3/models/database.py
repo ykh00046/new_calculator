@@ -6,15 +6,11 @@ import os
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
-from typing import Dict, List, Optional, Union
-
-import pandas as pd
+from typing import Dict, List, Optional
 
 from config.settings import DB_FILE, LEGACY_DB_PATH, USER_DATA_DIR
 from utils.logger import logger
 from utils.error_handler import DatabaseError, handle_exceptions
-
-# Google Sheets 백업 관련 임포트 추가
 
 
 class DatabaseManager:

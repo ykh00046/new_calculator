@@ -579,36 +579,33 @@ class ManualInputInterface(QScrollArea):
             logger.info(f"DHR 기록 DB 저장 완료: {data['product_lot']}")
             
             # 2. 엑셀/PDF 생성
-            from models.excel_handler import ExcelHandler
+            from models.excel_exporter import ExcelExporter
             import os
-            
-            handler = ExcelHandler()
-            
+
+            exporter = ExcelExporter()
+
             # 엑셀 생성
-            excel_path = handler.create_mixing_report(
-                recipe_name=data['product_name'],
-                work_date=data['work_date'],
-                work_time=data['work_time'] if data['include_time'] else None,
-                worker=self.worker_name,
-                total_amount=data['amount'],
-                product_lot=data['product_lot'],
-                materials=data['materials'],
-                scale=config.default_scale
-            )
-            
+            export_data = {
+                'product_lot': data['product_lot'],
+                'recipe_name': data['product_name'],
+                'work_date': data['work_date'],
+                'work_time': data['work_time'] if data['include_time'] else '',
+                'worker': self.worker_name,
+                'total_amount': data['amount'],
+                'materials': data['materials'],
+                'scale': config.default_scale,
+            }
+            excel_path = exporter.export_to_excel(export_data, include_work_time=data['include_time'])
+
             if excel_path:
                 # PDF 생성
-                pdf_path = handler.convert_to_pdf(
-                    excel_path,
-                    scan_effects=self.scan_effects_panel.get_data(),
-                    signature_options=self.signature_panel.get_data(),
-                    worker_name=self.worker_name
-                )
-                
+                effects_params = self.scan_effects_panel.get_data()
+                pdf_path = exporter.export_to_pdf(excel_path, effects_params)
+
                 msg = f"저장 완료!\n\n엑셀: {os.path.basename(excel_path)}"
                 if pdf_path:
                     msg += f"\nPDF: {os.path.basename(pdf_path)}"
-                
+
                 QMessageBox.information(self, "완료", msg)
                 logger.info(f"DHR 수동 저장 완료: {data['product_name']}")
             else:

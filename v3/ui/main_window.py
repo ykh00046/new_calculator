@@ -384,12 +384,8 @@ class MainWindow(FluentWindow):
 
     def _set_save_button_state(self, enabled: bool) -> None:
         self.save_btn.setEnabled(enabled)
-        if enabled:
-            self.save_btn.setText("배합 저장")
-            self.save_btn.setStyleSheet(UIStyles.get_primary_button_style())
-        else:
-            self.save_btn.setText("배합 저장")
-            self.save_btn.setStyleSheet(UIStyles.get_primary_button_style())
+        self.save_btn.setText("배합 저장")
+        self.save_btn.setStyleSheet(UIStyles.get_primary_button_style())
 
     def _handle_recipe_cleared(self) -> None:
         self.material_panel.clear_items()

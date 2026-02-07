@@ -57,9 +57,7 @@ os.makedirs(USER_LOG_DIR, exist_ok=True)
 RESOURCES_FOLDER = os.path.join(BASE_PATH, "resources")
 
 # 파일 경로
-RECIPE_FILE = os.path.join(RESOURCES_FOLDER, "레시피.xlsx")
 RECORD_FILE = os.path.join(RESOURCES_FOLDER, "배합기록.xlsx")
-TEMPLATE_FILE = os.path.join(RESOURCES_FOLDER, "원료배합일지_DHR.xlsx")
 LOT_FILE = os.path.join(RESOURCES_FOLDER, "OUT.xlsx")
 
 # DB 경로 (사용자 데이터 디렉토리 하위)
@@ -135,7 +133,7 @@ _recipe_candidates = [
     os.path.join(RESOURCES_FOLDER, "레시피.xlsx"),
 ]
 RECIPE_FILE = _first_existing(_recipe_candidates)
-if not os.path.exists(RECIPE_FILE or ""):
+if not os.path.exists(RECIPE_FILE or "") and os.path.isdir(RESOURCES_FOLDER):
     # Fallback: scan for a likely recipe file
     for name in os.listdir(RESOURCES_FOLDER):
         lower = name.lower()
@@ -147,7 +145,7 @@ _template_candidates = [
     os.path.join(RESOURCES_FOLDER, "원료배합일지_DHR.xlsx"),
 ]
 TEMPLATE_FILE = _first_existing(_template_candidates)
-if not os.path.exists(TEMPLATE_FILE or ""):
+if not os.path.exists(TEMPLATE_FILE or "") and os.path.isdir(RESOURCES_FOLDER):
     # Fallback: pick any *DHR.xlsx template
     for name in os.listdir(RESOURCES_FOLDER):
         lower = name.lower()

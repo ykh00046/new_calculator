@@ -295,7 +295,5 @@ class ImageProcessor:
             return True, f"Signed image successfully generated: {output_path}"
 
         except Exception as e:
-            import traceback
-            logger.error(f"Image composition error: {e}")
-            traceback.print_exc()
+            logger.error(f"Image composition error: {e}", exc_info=True)
             return False, f"Image composition error: {e}"

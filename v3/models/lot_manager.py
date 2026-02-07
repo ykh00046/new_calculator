@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+from typing import List, Tuple
+
 import pandas as pd
 from datetime import datetime
+
+from utils.logger import logger
+
 
 class LotManager:
     def __init__(self, excel_path):
@@ -29,16 +34,14 @@ class LotManager:
             self.df[date_column_name] = pd.to_datetime(self.df[date_column_name])
         except FileNotFoundError:
             # Handle case where the Excel file doesn't exist
-            from utils.logger import logger
             logger.warning(f"LOT 데이터 파일을 찾을 수 없습니다: {self.excel_path}")
             self.df = pd.DataFrame()
         except Exception as e:
             # Handle other potential errors during file loading
-            from utils.logger import logger
             logger.error(f"LOT 데이터 로드 중 오류 발생 ({self.excel_path}): {e}", exc_info=True)
             self.df = pd.DataFrame()
 
-    def get_lot(self, item_code: str, work_date: str) -> list[tuple[str, str]]:
+    def get_lot(self, item_code: str, work_date: str) -> List[Tuple[str, str]]:
         """
         Finds the oldest LOT number(s) with a shipment date on or after the given work date.
 
@@ -50,7 +53,6 @@ class LotManager:
             A list of unique (LOT number, shipment date) tuples.
             Returns an empty list if no suitable LOT is found.
         """
-        from utils.logger import logger
         logger.debug(f"--- 로트 추적 시작: 품목코드={item_code}, 작업일자={work_date} ---")
 
         if self.df.empty:

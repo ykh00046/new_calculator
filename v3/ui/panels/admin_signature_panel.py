@@ -343,8 +343,8 @@ class SignatureSettingsPanel(QWidget):
             current_sig_config['positions'] = params['positions']
             
             # config 객체에 반영 및 저장
-            config.config['signature'] = current_sig_config
-            config.save()
+            config._data['signature'] = current_sig_config
+            config._save_config()
             
             QMessageBox.information(self, "저장 완료", "서명 품질 및 위치 설정이 저장되었습니다.")
             logger.info("관리자 모드: 서명 설정 업데이트 및 저장 완료")
