@@ -1,0 +1,28 @@
+========================================
+  Production Data Hub - 설치 방법
+========================================
+
+[새 PC에서 실행 전 필수]
+
+1. Python 설치 확인
+   - Python 3.10 이상 필요
+   - 명령창에서 확인: python --version
+
+2. 패키지 설치
+   - 명령창에서 이 폴더로 이동 후 실행:
+
+   cd C:\X\Server_API
+   pip install -r requirements.txt
+
+3. 포트 설정 (선택)
+   - 기본 포트: Dashboard=8501, API=8000
+   - 포트 충돌 시 .env 파일 수정:
+
+   DASHBOARD_PORT=8502
+   API_PORT=8001
+
+4. 서버 실행
+   - start_services_hidden.vbs 더블클릭 (숨김 실행)
+   - 또는 start_services.bat 더블클릭 (터미널 보임)
+
+========================================

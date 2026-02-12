@@ -1,0 +1,13 @@
+streamlit
+fastapi
+uvicorn
+pandas
+openpyxl
+customtkinter
+packaging
+google-genai
+python-dotenv
+plotly
+requests
+orjson
+cachetools

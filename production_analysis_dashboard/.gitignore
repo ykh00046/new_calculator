@@ -1,0 +1,17 @@
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Local databases and temp data
+*.db
+temp_db/
+error.txt
+
+# Streamlit secrets
+.streamlit/secrets.toml
+
+# OS / editor files
+.DS_Store
+Thumbs.db
+*.tmp.*
