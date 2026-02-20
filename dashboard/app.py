@@ -363,11 +363,11 @@ def to_excel_bytes(df: pd.DataFrame, sheet_name: str = "Sheet1") -> bytes:
 # ==========================================================
 # UI Main
 # ==========================================================
-st.title(":factory: Production Data Hub")
+st.title(":factory: 생산 데이터 허브")
 
 check_ok, check_msg = run_self_check()
 if not check_ok:
-    st.error(f":rotating_light: System initialization failed: {check_msg}")
+    st.error(f":rotating_light: 시스템 초기화 실패: {check_msg}")
     st.stop()
 elif check_msg:
     st.warning(check_msg)
@@ -375,12 +375,12 @@ elif check_msg:
 current_db_ver = get_db_mtime()
 
 # Sidebar - Search Conditions
-st.sidebar.header(":mag: Search Filters")
-limit = st.sidebar.slider("Max Records", 500, 50000, 5000, 500)
-keyword = st.sidebar.text_input("Keyword (Code/Name/LOT)", value="").strip() or None
+st.sidebar.header(":mag: 검색 필터")
+limit = st.sidebar.slider("최대 레코드 수", 500, 50000, 5000, 500)
+keyword = st.sidebar.text_input("키워드 (코드/명칭/LOT)", value="").strip() or None
 
 today = date.today()
-date_range = st.sidebar.date_input("Date Range (Production)", value=(today - timedelta(days=90), today))
+date_range = st.sidebar.date_input("날짜 범위 (생산일)", value=(today - timedelta(days=90), today))
 date_from, date_to = None, None
 if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
     date_from, date_to = date_range[0], date_range[1]
@@ -388,7 +388,7 @@ if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
 items_df = load_item_list(db_ver=current_db_ver)
 labels = items_df["label"].tolist()
 label_to_code = dict(zip(labels, items_df["item_code"].tolist()))
-selected_labels = st.sidebar.multiselect("Select Products", options=labels, default=[])
+selected_labels = st.sidebar.multiselect("제품 선택", options=labels, default=[])
 item_codes = [label_to_code[x] for x in selected_labels] if selected_labels else None
 
 # Filter Preset Manager - can return loaded preset values
@@ -406,9 +406,9 @@ if loaded_preset:
     # The preset values are returned for informational purposes.
     # A more sophisticated implementation would use session_state
     # to control default values.
-    st.sidebar.info(f"Loaded preset. Please adjust filters and refresh.")
+    st.sidebar.info(f"프리셋 로드됨. 필터 조정 후 새로고침하세요.")
 
-if st.sidebar.button(":arrows_counterclockwise: Refresh"):
+if st.sidebar.button(":arrows_counterclockwise: 새로고침"):
     st.cache_data.clear()
     st.rerun()
 
@@ -419,10 +419,10 @@ df, bad_dt = load_records(item_codes, keyword, date_from, date_to, limit, db_ver
 render_last_update()
 
 if bad_dt > 0:
-    st.warning(f":warning: {bad_dt:,} records have date parsing issues.")
+    st.warning(f":warning: {bad_dt:,}개 레코드의 날짜 파싱에 문제가 있습니다.")
 
 # Tabs - AI Analysis first
-tab1, tab2, tab3, tab4 = st.tabs([":robot: AI Analysis", ":chart_with_upwards_trend: Trends", ":memo: Details", ":bar_chart: Product Comparison"])
+tab1, tab2, tab3, tab4 = st.tabs([":robot: AI 분석", ":chart_with_upwards_trend: 추세", ":memo: 상세내역", ":bar_chart: 제품비교"])
 
 with tab1:
     # AI Analysis Section with animation
@@ -431,27 +431,27 @@ with tab1:
 with tab2:
     # Aggregation unit selector
     agg_unit = st.radio(
-        "Aggregation Unit",
-        options=["Daily", "Weekly", "Monthly"],
+        "집계 단위",
+        options=["일별", "주별", "월별"],
         index=2,  # Default: Monthly
         horizontal=True
     )
 
     # Load appropriate data based on aggregation unit
-    if agg_unit == "Daily":
+    if agg_unit == "일별":
         summary_df = load_daily_summary(date_from, date_to, db_ver=current_db_ver)
         x_col = "production_day"
-    elif agg_unit == "Weekly":
+    elif agg_unit == "주별":
         summary_df = load_weekly_summary(date_from, date_to, db_ver=current_db_ver)
         x_col = "year_week"
     else:  # Monthly
         summary_df = load_monthly_summary(date_from, date_to, db_ver=current_db_ver)
         x_col = "year_month"
 
-    st.subheader(f"{agg_unit} Production & Batch Count")
+    st.subheader(f"{agg_unit} 생산량 및 배치 수")
 
     if len(summary_df) == 0:
-        st.info("No data available for the selected period.")
+        st.info("선택한 기간에 데이터가 없습니다.")
     else:
         # Get theme colors for chart template
         colors = get_colors()
@@ -463,7 +463,7 @@ with tab2:
             go.Bar(
                 x=summary_df[x_col],
                 y=summary_df['total_production'],
-                name="Total Production",
+                name="총 생산량",
                 marker_color='#1f77b4'
             ),
             secondary_y=False
@@ -472,7 +472,7 @@ with tab2:
             go.Scatter(
                 x=summary_df[x_col],
                 y=summary_df['batch_count'],
-                name="Batch Count",
+                name="배치 수",
                 mode='lines+markers',
                 line=dict(color='#ff7f0e', width=3)
             ),
@@ -480,23 +480,23 @@ with tab2:
         )
 
         fig.update_layout(
-            title_text=f"{agg_unit} Performance Trends",
+            title_text=f"{agg_unit} 생산 추세",
             hovermode="x unified",
             template=chart_template
         )
-        fig.update_yaxes(title_text="Production (ea)", secondary_y=False)
-        fig.update_yaxes(title_text="Batch Count", secondary_y=True)
+        fig.update_yaxes(title_text="생산량 (개)", secondary_y=False)
+        fig.update_yaxes(title_text="배치 수", secondary_y=True)
 
         st.plotly_chart(fig, use_container_width=True, config=get_chart_config(f"production_trends_{agg_unit.lower()}"))
         st.dataframe(summary_df, width="stretch", hide_index=True)
 
 with tab3:
-    st.subheader(f"Total {len(df):,} Records")
+    st.subheader(f"총 {len(df):,}개 레코드")
     st.dataframe(df[["production_date", "item_code", "item_name", "good_quantity", "lot_number"]], width="stretch", hide_index=True)
-    st.download_button(":inbox_tray: Download Excel", to_excel_bytes(df), "production_records.xlsx")
+    st.download_button(":inbox_tray: Excel 다운로드", to_excel_bytes(df), "production_records.xlsx")
 
 with tab4:
-    st.subheader(":bar_chart: Product Comparison")
+    st.subheader(":bar_chart: 제품 비교")
 
     # Get theme colors for chart template
     colors = get_colors()
@@ -506,34 +506,34 @@ with tab4:
     col_left, col_right = st.columns(2)
 
     with col_left:
-        st.write("**Top 10 Products**")
+        st.write("**Top 10 제품**")
         fig_bar = create_top10_bar_chart(df, chart_template)
         st.plotly_chart(fig_bar, use_container_width=True, config=get_chart_config("top10_products"))
 
     with col_right:
-        st.write("**Production Distribution**")
+        st.write("**생산 분포**")
         fig_pie = create_distribution_pie(df, chart_template)
         st.plotly_chart(fig_pie, use_container_width=True, config=get_chart_config("product_distribution"))
 
     # Product trend comparison
     st.divider()
-    st.write("**Product Trend Comparison**")
+    st.write("**제품 추세 비교**")
 
     # Multi-select for products to compare
     if not items_df.empty:
         compare_options = items_df["item_code"].tolist()
         selected_compare = st.multiselect(
-            "Select products to compare (up to 5)",
+            "비교할 제품 선택 (최대 5개)",
             options=compare_options,
             max_selections=5,
-            help="Select 2-5 products to compare their production trends"
+            help="2-5개 제품을 선택하여 생산 추세를 비교하세요"
         )
 
         if selected_compare:
             # Aggregation unit for trend comparison
             trend_agg = st.radio(
-                "Trend Aggregation",
-                options=["Daily", "Weekly", "Monthly"],
+                "추세 집계 단위",
+                options=["일별", "주별", "월별"],
                 index=2,
                 horizontal=True,
                 key="trend_agg_unit"
@@ -542,6 +542,6 @@ with tab4:
             fig_trend = create_trend_lines(df, selected_compare, trend_agg, chart_template)
             st.plotly_chart(fig_trend, use_container_width=True, config=get_chart_config("product_trends"))
         else:
-            st.info("Select products above to view trend comparison.")
+            st.info("위에서 제품을 선택하면 추세 비교가 표시됩니다.")
     else:
-        st.info("No products available for comparison.")
+        st.info("비교할 제품이 없습니다.")

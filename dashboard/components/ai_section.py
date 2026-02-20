@@ -20,13 +20,13 @@ def render_ai_status_indicator(is_online: bool = True) -> None:
         is_online: Whether the AI service is online
     """
     status_color = "#00aa66" if is_online else "#cc4444"
-    status_text = "Online" if is_online else "Offline"
+    status_text = "온라인" if is_online else "오프라인"
     status_icon = "●" if is_online else "○"
 
     st.markdown(f"""
     <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px;">
         <span style="color: {status_color}; font-size: 1.2rem;">{status_icon}</span>
-        <span style="color: {status_color}; font-weight: 600;">AI Status: {status_text}</span>
+        <span style="color: {status_color}; font-weight: 600;">AI 상태: {status_text}</span>
     </div>
     """, unsafe_allow_html=True)
 
@@ -45,10 +45,10 @@ def render_ai_header_with_animation() -> None:
             background-clip: text;
             margin-bottom: 5px;
         ">
-            AI Production Analyst
+            AI 생산 분석가
         </h1>
         <p style="color: #888; font-size: 1rem;">
-            Ask questions about your production data in natural language
+            자연어로 생산 데이터에 대해 질문하세요
         </p>
     </div>
     """, unsafe_allow_html=True)
@@ -89,12 +89,12 @@ def render_faq_chips() -> Optional[str]:
     Returns:
         Selected FAQ query or None
     """
-    st.markdown("**Quick Questions:**")
+    st.markdown("**빠른 질문:**")
     cols = st.columns(3)
     faq_queries = [
-        "Top product last year?",
-        "Today's total production?",
-        "Average production for BW0021?"
+        "작년 최다 생산 제품은?",
+        "오늘 총 생산량은?",
+        "BW0021 평균 생산량은?"
     ]
 
     selected_faq = None
@@ -125,7 +125,7 @@ def render_ai_chat(api_url: str = "http://localhost:8000/chat/") -> None:
                 st.markdown(message["content"])
 
     # Input handling
-    prompt = st.chat_input("Ask anything about production data...")
+    prompt = st.chat_input("생산 데이터에 대해 질문하세요...")
 
     # Check FAQ selection
     selected_faq = render_faq_chips()
@@ -138,23 +138,23 @@ def render_ai_chat(api_url: str = "http://localhost:8000/chat/") -> None:
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         try:
-            with st.spinner("Analyzing..."):
+            with st.spinner("분석 중..."):
                 resp = requests.post(api_url, json={"query": prompt}, timeout=60)
 
             if resp.status_code == 200:
-                answer = resp.json().get("answer", "No response")
+                answer = resp.json().get("answer", "응답 없음")
                 with chat_container:
                     st.chat_message("assistant").markdown(answer)
                 st.session_state.messages.append({"role": "assistant", "content": answer})
             else:
-                st.error(f"API Error: {resp.status_code}")
+                st.error(f"API 오류: {resp.status_code}")
         except requests.exceptions.ConnectionError:
-            st.error("Cannot connect to AI server. Please check if the API is running.")
+            st.error("AI 서버에 연결할 수 없습니다. API가 실행 중인지 확인하세요.")
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"오류: {e}")
 
     # Clear chat button
-    if st.button("Clear Chat History", icon="🗑️"):
+    if st.button("대화 기록 삭제", icon="🗑️"):
         st.session_state.messages = []
         st.rerun()
 
