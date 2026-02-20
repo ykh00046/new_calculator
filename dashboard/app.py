@@ -38,6 +38,8 @@ from components import (
     # KPI
     calculate_kpis,
     render_kpi_cards,
+    get_sparkline_data,
+    get_sparkline_for_top_product,
     # Charts
     create_top10_bar_chart,
     create_distribution_pie,
@@ -112,13 +114,15 @@ def _parse_production_dt(series: pd.Series) -> pd.Series:
     Parse Korean datetime format to pandas datetime.
 
     Handles formats like:
-    - "2026-01-20 AM 10:30:00" -> 2026-01-20 10:30:00
-    - "2026-01-20 PM 02:15:00" -> 2026-01-20 14:15:00
-    - "2026-01-20 AM 12:30:00" -> 2026-01-20 00:30:00 (midnight)
-    - "2026-01-20 PM 12:30:00" -> 2026-01-20 12:30:00 (noon)
+    - "2026-01-20 오전 10:30:00" -> 2026-01-20 10:30:00
+    - "2026-01-20 오후 02:15:00" -> 2026-01-20 14:15:00
+    - "2026-01-20 오전 12:30:00" -> 2026-01-20 00:30:00 (midnight)
+    - "2026-01-20 오후 12:30:00" -> 2026-01-20 12:30:00 (noon)
     - "2026-01-20 14:30:00" -> 2026-01-20 14:30:00 (24h format passthrough)
+    - Also handles English "AM"/"PM" format
     """
-    pattern = re.compile(r"(\d{4}-\d{2}-\d{2})\s+(AM|PM)\s+(\d{1,2}):(\d{2}):(\d{2})")
+    # Match both Korean (오전/오후) and English (AM/PM) formats
+    pattern = re.compile(r"(\d{4}-\d{2}-\d{2})\s+(오전|오후|AM|PM)\s+(\d{1,2}):(\d{2}):(\d{2})")
 
     def convert_korean_time(val) -> str:
         """Convert Korean AM/PM format to 24-hour format."""
@@ -132,11 +136,14 @@ def _parse_production_dt(series: pd.Series) -> pd.Series:
         date_part, ampm, hour_str, minute, second = match.groups()
         hour = int(hour_str)
 
-        if ampm == "AM":
+        # Handle both Korean and English AM/PM
+        is_am = ampm in ("오전", "AM")
+
+        if is_am:
             # AM 12 = 00 (midnight), AM 1-11 = 1-11
             if hour == 12:
                 hour = 0
-        else:  # PM
+        else:  # PM/오후
             # PM 12 = 12 (noon), PM 1-11 = 13-23
             if hour != 12:
                 hour += 12
@@ -411,9 +418,21 @@ if st.sidebar.button(":arrows_counterclockwise: Refresh"):
 # Load data for KPIs and tabs
 df, bad_dt = load_records(item_codes, keyword, date_from, date_to, limit, db_ver=current_db_ver)
 
-# Render KPI Cards at top
+# Render KPI Cards at top with sparklines
 kpis = calculate_kpis(df, date_from, date_to)
-render_kpi_cards(kpis, get_colors())
+
+# Calculate sparkline data (7-day trend)
+production_sparkline = get_sparkline_data(df, days=7)
+batch_sparkline = get_sparkline_data(df, days=7)  # Use same for batch count
+top_product_sparkline = get_sparkline_for_top_product(df, kpis['top_item'], days=7)
+
+render_kpi_cards(
+    kpis,
+    get_colors(),
+    sparkline_data=production_sparkline,
+    batch_sparkline=batch_sparkline,
+    top_product_sparkline=top_product_sparkline
+)
 
 # Display last update time
 render_last_update()

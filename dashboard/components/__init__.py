@@ -11,7 +11,6 @@ This package contains modular components for the Production Data Hub dashboard:
 """
 
 from .theme import (
-    COLORS,
     init_theme,
     get_theme,
     get_colors,
@@ -30,6 +29,8 @@ from .responsive import (
 from .kpi_cards import (
     calculate_kpis,
     render_kpi_cards,
+    get_sparkline_data,
+    get_sparkline_for_top_product,
 )
 from .charts import (
     create_top10_bar_chart,
@@ -50,7 +51,6 @@ from .presets import (
 
 __all__ = [
     # theme
-    "COLORS",
     "init_theme",
     "get_theme",
     "get_colors",
@@ -66,6 +66,8 @@ __all__ = [
     # kpi_cards
     "calculate_kpis",
     "render_kpi_cards",
+    "get_sparkline_data",
+    "get_sparkline_for_top_product",
     # charts
     "create_top10_bar_chart",
     "create_distribution_pie",

@@ -1,36 +1,28 @@
 """
 U1: Theme Manager - Dark mode support for dashboard.
 
-Provides light/dark theme switching with consistent color palettes
-for the entire dashboard UI.
+Simplified version using config.toml for theme settings.
+Only detects theme and provides color palette for charts.
 """
 
 import streamlit as st
-from typing import Literal, Dict, Any
+from typing import Literal, Dict
 
 ThemeMode = Literal["light", "dark"]
 
-# Color palettes for both themes
-COLORS: Dict[str, Dict[str, str]] = {
+# Color palettes for charts (config.toml doesn't support runtime chart colors)
+CHART_COLORS: Dict[str, Dict[str, str]] = {
     "light": {
-        "bg": "#FFFFFF",
-        "sidebar": "#F0F2F6",
-        "text": "#1F1F1F",
-        "text_secondary": "#5C5C5C",
-        "accent": "#FF4B4B",
-        "chart_bg": "#FFFFFF",
-        "grid_lines": "#E0E0E0",
         "chart_template": "plotly_white",
+        "primary": "#1f77b4",
+        "secondary": "#ff7f0e",
+        "accent": "#FF4B4B",
     },
     "dark": {
-        "bg": "#0E1117",
-        "sidebar": "#262730",
-        "text": "#FAFAFA",
-        "text_secondary": "#A0A0A0",
-        "accent": "#FF4B4B",
-        "chart_bg": "#111111",
-        "grid_lines": "#333333",
         "chart_template": "plotly_dark",
+        "primary": "#1f77b4",
+        "secondary": "#ff7f0e",
+        "accent": "#FF4B4B",
     }
 }
 
@@ -42,17 +34,36 @@ def init_theme() -> None:
     Call this once at the start of the app, after st.set_page_config().
     """
     if "dark_mode" not in st.session_state:
-        st.session_state.dark_mode = False
+        # Try to detect from st.context.theme.base (Streamlit 1.40+)
+        try:
+            detected = st.context.theme.base == "dark"
+            st.session_state.dark_mode = detected
+        except AttributeError:
+            st.session_state.dark_mode = False
 
 
 def get_theme() -> ThemeMode:
     """
     Get current theme mode.
 
+    Uses st.context.theme.base if available (Streamlit 1.40+),
+    otherwise falls back to session_state.
+
     Returns:
         "dark" if dark mode is enabled, "light" otherwise.
     """
-    return "dark" if st.session_state.get("dark_mode", False) else "light"
+    # First check session_state (user toggle)
+    if st.session_state.get("dark_mode", False):
+        return "dark"
+
+    # Try to detect from Streamlit context
+    try:
+        if st.context.theme.base == "dark":
+            return "dark"
+    except AttributeError:
+        pass
+
+    return "light"
 
 
 def get_colors() -> Dict[str, str]:
@@ -62,7 +73,7 @@ def get_colors() -> Dict[str, str]:
     Returns:
         Dict with color values for current theme mode.
     """
-    return COLORS[get_theme()]
+    return CHART_COLORS[get_theme()]
 
 
 def render_theme_toggle() -> bool:
@@ -87,92 +98,20 @@ def render_theme_toggle() -> bool:
 
 def apply_custom_css() -> None:
     """
-    Apply custom CSS based on current theme.
+    Apply minimal custom CSS only for styles not supported by config.toml.
 
-    Injects CSS that styles the application according to the
-    current theme's color palette. Should be called after
-    render_theme_toggle() to ensure theme state is current.
+    Most styling is now handled by .streamlit/config.toml.
+    This function only adds styles that config.toml cannot configure.
     """
-    colors = get_colors()
     is_dark = get_theme() == "dark"
 
-    # Additional dark mode specific styles
-    dark_specific = ""
+    # Only apply minimal CSS for unsupported elements
     if is_dark:
-        dark_specific = """
-        /* Dark mode specific overrides */
-        .stDataFrame {
-            background-color: #1a1a2e;
-        }
-        .stDataFrame th {
-            background-color: #262730 !important;
-            color: #FAFAFA !important;
-        }
-        .stDataFrame td {
-            color: #FAFAFA !important;
-        }
-        /* Tabs styling */
-        .stTabs [role="tab"] {
-            color: #A0A0A0;
-        }
-        .stTabs [aria-selected="true"] {
-            color: #FAFAFA !important;
-        }
-        /* Metric styling */
-        .stMetric > div > label {
-            color: #A0A0A0 !important;
-        }
-        .stMetric > div > div {
-            color: #FAFAFA !important;
-        }
-        """
-
-    st.markdown(f"""
-    <style>
-        /* Main background */
-        .stApp {{
-            background-color: {colors['bg']};
-        }}
-
-        /* Sidebar */
-        [data-testid="stSidebar"] {{
-            background-color: {colors['sidebar']};
-        }}
-
-        /* Text colors */
-        .stMarkdown, .stMetric label {{
-            color: {colors['text']};
-        }}
-
-        /* KPI Card styling */
-        .kpi-card {{
-            background-color: {colors['sidebar']};
-            border-radius: 10px;
-            padding: 20px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }}
-
-        /* Section headers */
-        h1, h2, h3 {{
-            color: {colors['text']};
-        }}
-
-        /* Caption and secondary text */
-        .stCaption, small {{
-            color: {colors['text_secondary']};
-        }}
-
-        /* Download button styling */
-        .stDownloadButton button {{
-            background-color: {colors['accent']};
-            color: white;
-        }}
-
-        /* DataFrame header background */
-        .stDataFrame th {{
-            background-color: {colors['sidebar']};
-        }}
-
-        {dark_specific}
-    </style>
-    """, unsafe_allow_html=True)
+        st.markdown("""
+        <style>
+            /* Dark mode DataFrame fixes (config.toml doesn't fully support) */
+            .stDataFrame th {
+                background-color: #262730 !important;
+            }
+        </style>
+        """, unsafe_allow_html=True)
