@@ -1,9 +1,8 @@
 """
-AI Section Component - Enhanced AI Analysis interface with animations.
+AI Section Component - Enhanced AI Analysis interface.
 
 Features:
-- Animated AI brain (Lottie)
-- Status indicator with pulse effect
+- Status indicator
 - Smart insights cards
 - Enhanced chat UI
 """
@@ -11,56 +10,29 @@ Features:
 import streamlit as st
 import requests
 from typing import Optional
-import json
-from pathlib import Path
-
-
-def load_lottie_file(filepath: str):
-    """Load Lottie animation from JSON file."""
-    try:
-        with open(filepath, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return None
 
 
 def render_ai_status_indicator(is_online: bool = True) -> None:
     """
-    Render animated AI status indicator.
+    Render AI status indicator.
 
     Args:
         is_online: Whether the AI service is online
     """
-    status_color = "#00ff88" if is_online else "#ff4444"
+    status_color = "#00aa66" if is_online else "#cc4444"
     status_text = "Online" if is_online else "Offline"
+    status_icon = "●" if is_online else "○"
 
     st.markdown(f"""
-    <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 20px;">
-        <div style="
-            width: 12px;
-            height: 12px;
-            background: {status_color};
-            border-radius: 50%;
-            animation: pulse 2s infinite;
-            box-shadow: 0 0 10px {status_color};
-        "></div>
+    <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px;">
+        <span style="color: {status_color}; font-size: 1.2rem;">{status_icon}</span>
         <span style="color: {status_color}; font-weight: 600;">AI Status: {status_text}</span>
     </div>
-    <style>
-        @keyframes pulse {{
-            0%, 100% {{ opacity: 1; transform: scale(1); }}
-            50% {{ opacity: 0.6; transform: scale(1.1); }}
-        }}
-    </style>
     """, unsafe_allow_html=True)
 
 
 def render_ai_header_with_animation() -> None:
-    """Render AI section header with animation and styling."""
-    # Try to load Lottie animation
-    lottie_path = Path(__file__).parent.parent / "assets" / "ai_brain.json"
-    lottie_json = load_lottie_file(str(lottie_path))
-
+    """Render AI section header with styling."""
     # Header with gradient text
     st.markdown("""
     <div style="text-align: center; padding: 10px 0;">
@@ -80,25 +52,6 @@ def render_ai_header_with_animation() -> None:
         </p>
     </div>
     """, unsafe_allow_html=True)
-
-    # Display Lottie animation if available
-    if lottie_json:
-        try:
-            from streamlit_lottie import st_lottie
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                st_lottie(
-                    lottie_json,
-                    speed=1,
-                    reverse=False,
-                    loop=True,
-                    quality="low",
-                    height=120,
-                    width=120,
-                    key="ai_brain_animation"
-                )
-        except ImportError:
-            pass  # streamlit-lottie not installed
 
 
 def render_smart_insights(insights: list) -> None:
