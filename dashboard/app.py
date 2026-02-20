@@ -48,6 +48,8 @@ from components import (
     # Presets
     init_presets,
     render_preset_manager,
+    # AI Section
+    render_ai_section,
 )
 
 st.set_page_config(page_title="Production Data Hub", layout="wide", page_icon=":factory:")
@@ -440,13 +442,12 @@ render_last_update()
 if bad_dt > 0:
     st.warning(f":warning: {bad_dt:,} records have date parsing issues.")
 
-# Tabs
-tab1, tab2, tab3, tab4 = st.tabs([":memo: Details", ":chart_with_upwards_trend: Trends", ":robot: AI Analysis", ":bar_chart: Product Comparison"])
+# Tabs - AI Analysis first
+tab1, tab2, tab3, tab4 = st.tabs([":robot: AI Analysis", ":chart_with_upwards_trend: Trends", ":memo: Details", ":bar_chart: Product Comparison"])
 
 with tab1:
-    st.subheader(f"Total {len(df):,} Records")
-    st.dataframe(df[["production_date", "item_code", "item_name", "good_quantity", "lot_number"]], width="stretch", hide_index=True)
-    st.download_button(":inbox_tray: Download Excel", to_excel_bytes(df), "production_records.xlsx")
+    # AI Analysis Section with animation
+    render_ai_section()
 
 with tab2:
     # Aggregation unit selector
@@ -511,54 +512,9 @@ with tab2:
         st.dataframe(summary_df, width="stretch", hide_index=True)
 
 with tab3:
-    st.subheader(":robot: AI Production Data Analyst")
-
-    # Help Chips (FAQ)
-    st.write(":bulb: **Quick Questions:**")
-    cols = st.columns(3)
-    faq_queries = ["Top product last year?", "Today's total production?", "Average production for BW0021?"]
-
-    selected_faq = None
-    for i, q in enumerate(faq_queries):
-        if cols[i % 3].button(q, use_container_width=True):
-            selected_faq = q
-
-    # Chat History
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-
-    chat_container = st.container(height=450)  # Scrollable area
-    with chat_container:
-        for message in st.session_state.messages:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-
-    # Input Logic
-    prompt = st.chat_input("Ask anything...")
-    if selected_faq:  # Chip clicked
-        prompt = selected_faq
-
-    if prompt:
-        with chat_container:
-            st.chat_message("user").markdown(prompt)
-        st.session_state.messages.append({"role": "user", "content": prompt})
-
-        try:
-            with st.spinner("Analyzing..."):
-                resp = requests.post("http://localhost:8000/chat/", json={"query": prompt}, timeout=60)
-            if resp.status_code == 200:
-                answer = resp.json()["answer"]
-                with chat_container:
-                    st.chat_message("assistant").markdown(answer)
-                st.session_state.messages.append({"role": "assistant", "content": answer})
-            else:
-                st.error(f"API Error: {resp.status_code}")
-        except Exception as e:
-            st.error(f"Connection Error: {e}")
-
-    if st.button(":wastebasket: Clear Chat History"):
-        st.session_state.messages = []
-        st.rerun()
+    st.subheader(f"Total {len(df):,} Records")
+    st.dataframe(df[["production_date", "item_code", "item_name", "good_quantity", "lot_number"]], width="stretch", hide_index=True)
+    st.download_button(":inbox_tray: Download Excel", to_excel_bytes(df), "production_records.xlsx")
 
 with tab4:
     st.subheader(":bar_chart: Product Comparison")

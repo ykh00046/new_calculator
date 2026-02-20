@@ -8,6 +8,7 @@ This package contains modular components for the Production Data Hub dashboard:
 - presets: Filter preset manager (U7)
 - loading: Loading state display (U6)
 - responsive: Responsive layout utilities (U8)
+- ai_section: AI analysis section with animations (U9)
 """
 
 from .theme import (
@@ -48,6 +49,11 @@ from .presets import (
     delete_preset,
     render_preset_manager,
 )
+from .ai_section import (
+    render_ai_section,
+    render_ai_status_indicator,
+    render_ai_header_with_animation,
+)
 
 __all__ = [
     # theme
@@ -82,4 +88,8 @@ __all__ = [
     "load_preset",
     "delete_preset",
     "render_preset_manager",
+    # ai_section
+    "render_ai_section",
+    "render_ai_status_indicator",
+    "render_ai_header_with_animation",
 ]
