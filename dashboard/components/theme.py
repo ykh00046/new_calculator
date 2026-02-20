@@ -1,8 +1,7 @@
 """
 U1: Theme Manager - Dark mode support for dashboard.
 
-Simplified version using config.toml for theme settings.
-Only detects theme and provides color palette for charts.
+Provides CSS-based dark mode that can be toggled at runtime.
 """
 
 import streamlit as st
@@ -10,7 +9,7 @@ from typing import Literal, Dict
 
 ThemeMode = Literal["light", "dark"]
 
-# Color palettes for charts (config.toml doesn't support runtime chart colors)
+# Color palettes for charts
 CHART_COLORS: Dict[str, Dict[str, str]] = {
     "light": {
         "chart_template": "plotly_white",
@@ -20,9 +19,9 @@ CHART_COLORS: Dict[str, Dict[str, str]] = {
     },
     "dark": {
         "chart_template": "plotly_dark",
-        "primary": "#1f77b4",
-        "secondary": "#ff7f0e",
-        "accent": "#FF4B4B",
+        "primary": "#4da6ff",
+        "secondary": "#ffaa00",
+        "accent": "#FF6B6B",
     }
 }
 
@@ -46,23 +45,11 @@ def get_theme() -> ThemeMode:
     """
     Get current theme mode.
 
-    Uses st.context.theme.base if available (Streamlit 1.40+),
-    otherwise falls back to session_state.
-
     Returns:
         "dark" if dark mode is enabled, "light" otherwise.
     """
-    # First check session_state (user toggle)
     if st.session_state.get("dark_mode", False):
         return "dark"
-
-    # Try to detect from Streamlit context
-    try:
-        if st.context.theme.base == "dark":
-            return "dark"
-    except AttributeError:
-        pass
-
     return "light"
 
 
@@ -87,31 +74,149 @@ def render_theme_toggle() -> bool:
         Current dark mode state (True = dark, False = light).
     """
     dark_mode = st.sidebar.toggle(
-        "Dark Mode",
+        "🌙 Dark Mode",
         value=st.session_state.get("dark_mode", False),
         key="dark_mode_toggle",
         help="Switch between light and dark theme"
     )
-    st.session_state.dark_mode = dark_mode
+
+    # Update session state if changed
+    if dark_mode != st.session_state.get("dark_mode", False):
+        st.session_state.dark_mode = dark_mode
+        st.rerun()
+
     return dark_mode
+
+
+def apply_dark_mode_css() -> None:
+    """
+    Apply dark mode CSS overrides when dark mode is enabled.
+
+    This function injects CSS to transform the light theme into dark theme.
+    """
+    is_dark = get_theme() == "dark"
+
+    if is_dark:
+        st.markdown("""
+        <style>
+            /* Main background */
+            .stApp {
+                background-color: #0E1117 !important;
+            }
+
+            /* Sidebar */
+            section[data-testid="stSidebar"] {
+                background-color: #262730 !important;
+            }
+
+            /* Main content area */
+            .main .block-container {
+                background-color: #0E1117 !important;
+            }
+
+            /* Text colors */
+            .stMarkdown, .stText, p, span, label {
+                color: #FAFAFA !important;
+            }
+
+            /* Headers */
+            h1, h2, h3, h4, h5, h6 {
+                color: #FAFAFA !important;
+            }
+
+            /* Metric cards */
+            [data-testid="stMetric"] {
+                background-color: #262730 !important;
+                border-color: #3a3d4a !important;
+            }
+
+            [data-testid="stMetric"] label {
+                color: #a3a8b8 !important;
+            }
+
+            [data-testid="stMetric"] [data-testid="stMetricValue"] {
+                color: #FAFAFA !important;
+            }
+
+            /* Dataframes */
+            .stDataFrame {
+                background-color: #262730 !important;
+            }
+
+            .stDataFrame th {
+                background-color: #1a1c24 !important;
+                color: #FAFAFA !important;
+            }
+
+            .stDataFrame td {
+                background-color: #262730 !important;
+                color: #FAFAFA !important;
+            }
+
+            /* Tabs */
+            .stTabs [data-baseweb="tab-list"] {
+                background-color: #262730 !important;
+            }
+
+            .stTabs [data-baseweb="tab"] {
+                color: #a3a8b8 !important;
+            }
+
+            .stTabs [aria-selected="true"] {
+                color: #FAFAFA !important;
+                background-color: #0E1117 !important;
+            }
+
+            /* Input widgets */
+            .stSelectbox, .stMultiSelect, .stDateInput {
+                background-color: #262730 !important;
+            }
+
+            div[data-baseweb="select"] > div {
+                background-color: #262730 !important;
+                color: #FAFAFA !important;
+            }
+
+            /* Buttons */
+            .stButton button {
+                background-color: #262730 !important;
+                color: #FAFAFA !important;
+                border-color: #3a3d4a !important;
+            }
+
+            .stButton button:hover {
+                background-color: #3a3d4a !important;
+            }
+
+            /* Expander */
+            .streamlit-expanderHeader {
+                background-color: #262730 !important;
+                color: #FAFAFA !important;
+            }
+
+            /* Dividers */
+            hr {
+                border-color: #3a3d4a !important;
+            }
+
+            /* Alerts/Warnings */
+            .stAlert {
+                background-color: #262730 !important;
+                color: #FAFAFA !important;
+            }
+
+            /* Info boxes */
+            .element-container .stAlert[data-basename="info"] {
+                background-color: #1a2a3a !important;
+            }
+        </style>
+        """, unsafe_allow_html=True)
 
 
 def apply_custom_css() -> None:
     """
-    Apply minimal custom CSS only for styles not supported by config.toml.
+    Apply custom CSS based on current theme.
 
-    Most styling is now handled by .streamlit/config.toml.
-    This function only adds styles that config.toml cannot configure.
+    This is the main entry point for theme CSS application.
     """
-    is_dark = get_theme() == "dark"
-
-    # Only apply minimal CSS for unsupported elements
-    if is_dark:
-        st.markdown("""
-        <style>
-            /* Dark mode DataFrame fixes (config.toml doesn't fully support) */
-            .stDataFrame th {
-                background-color: #262730 !important;
-            }
-        </style>
-        """, unsafe_allow_html=True)
+    apply_dark_mode_css()

@@ -11,6 +11,7 @@ Features:
 - Sparklines showing 7-day trend
 - Responsive horizontal layout
 - Card-style borders
+- Dark mode support
 """
 
 import streamlit as st
@@ -174,36 +175,43 @@ def render_kpi_cards(
     if top_product_sparkline is None:
         top_product_sparkline = [0] * 7
 
+    # Detect dark mode from colors dict
+    is_dark = colors.get("chart_template") == "plotly_dark"
+    sparkline_color = "#FF6B6B" if is_dark else "#FF4B4B"  # Slightly lighter for dark mode
+
     # CSS for equal-width cards and visible sparklines
-    st.markdown("""
+    st.markdown(f"""
     <style>
         /* Equal width for KPI cards in horizontal container */
-        .stHorizontalBlock .stElementContainer {
+        .stHorizontalBlock .stElementContainer {{
             flex: 1 1 0 !important;
             min-width: 150px;
-        }
+        }}
         /* Consistent card height */
-        .stMetric {
+        .stMetric {{
             height: 100%;
-        }
+        }}
         /* Align content consistently */
-        .stMetric > div {
+        .stMetric > div {{
             display: flex;
             flex-direction: column;
             justify-content: center;
-        }
-        /* Make sparklines more visible - override all stroke colors in metric SVGs */
-        .stMetric svg path {
-            stroke: #FF4B4B !important;
-        }
-        .stMetric svg path[fill="#a3a8b8"] {
-            fill: #FF4B4B !important;
-        }
+        }}
+        /* Make sparklines more visible with theme-aware colors */
+        .stMetric svg path {{
+            stroke: {sparkline_color} !important;
+        }}
+        .stMetric svg path[fill="#a3a8b8"] {{
+            fill: {sparkline_color} !important;
+        }}
+        .stMetric svg path[fill="#6a6d77"] {{
+            fill: {sparkline_color} !important;
+        }}
         /* Also target circles (data points) */
-        .stMetric svg circle {
-            stroke: #FF4B4B !important;
-            fill: #FF4B4B !important;
-        }
+        .stMetric svg circle {{
+            stroke: {sparkline_color} !important;
+            fill: {sparkline_color} !important;
+        }}
     </style>
     """, unsafe_allow_html=True)
 
