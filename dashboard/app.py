@@ -35,11 +35,6 @@ from components import (
     render_last_update,
     # Responsive
     apply_responsive_css,
-    # KPI
-    calculate_kpis,
-    render_kpi_cards,
-    get_sparkline_data,
-    get_sparkline_for_top_product,
     # Charts
     create_top10_bar_chart,
     create_distribution_pie,
@@ -417,24 +412,8 @@ if st.sidebar.button(":arrows_counterclockwise: Refresh"):
     st.cache_data.clear()
     st.rerun()
 
-# Load data for KPIs and tabs
+# Load data for tabs
 df, bad_dt = load_records(item_codes, keyword, date_from, date_to, limit, db_ver=current_db_ver)
-
-# Render KPI Cards at top with sparklines
-kpis = calculate_kpis(df, date_from, date_to)
-
-# Calculate sparkline data (7-day trend)
-production_sparkline = get_sparkline_data(df, days=7)
-batch_sparkline = get_sparkline_data(df, days=7)  # Use same for batch count
-top_product_sparkline = get_sparkline_for_top_product(df, kpis['top_item'], days=7)
-
-render_kpi_cards(
-    kpis,
-    get_colors(),
-    sparkline_data=production_sparkline,
-    batch_sparkline=batch_sparkline,
-    top_product_sparkline=top_product_sparkline
-)
 
 # Display last update time
 render_last_update()
