@@ -1,16 +1,46 @@
 {
-  "sessionCount": 3,
+  "sessionCount": 7,
   "lastSession": {
-    "startedAt": "2026-02-12T00:00:00.000Z",
+    "startedAt": "2026-02-20T12:00:00.000Z",
     "platform": "claude",
     "level": "Dynamic"
   },
+  "activeFeature": null,
   "completedFeatures": [
     {
       "name": "4-critical-issues-fix",
       "pdcaPhase": "completed",
       "matchRate": 97,
       "completedAt": "2026-02-12"
+    },
+    {
+      "name": "sql-tests-and-multiturn-chat",
+      "pdcaPhase": "completed",
+      "matchRate": 95,
+      "completedAt": "2026-02-20"
+    },
+    {
+      "name": "tracing-validation-ratelimit",
+      "pdcaPhase": "completed",
+      "matchRate": 95,
+      "completedAt": "2026-02-20"
+    },
+    {
+      "name": "ui-enhancement",
+      "pdcaPhase": "completed",
+      "matchRate": 99,
+      "completedAt": "2026-02-20"
+    }
+  ],
+  "hotfixes": [
+    {
+      "name": "manager-improvements",
+      "date": "2026-02-20",
+      "changes": [
+        "Archive DB monitoring added",
+        "messagebox import fixed",
+        "Log stream timeout protection"
+      ]
     }
   ]
 }

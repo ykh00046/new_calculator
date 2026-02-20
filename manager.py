@@ -9,6 +9,7 @@ import queue
 import sqlite3
 from pathlib import Path
 import tkinter as tk
+import tkinter.messagebox as messagebox
 import customtkinter as ctk
 
 # Add current directory to path for shared module import
@@ -17,6 +18,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from shared import (
     BASE_DIR,
     DB_FILE,
+    ARCHIVE_DB_FILE,
     DASHBOARD_PORT,
     API_PORT,
     DB_TIMEOUT,
@@ -48,12 +50,15 @@ class DBWatcher(threading.Thread):
         self.log_queue = log_queue
         self.interval = interval  # Default 1 hour
         self.running = False
-        self.last_mtime = 0
-        self.last_size = 0
-        
-        if DB_FILE.exists():
-            self.last_mtime = os.path.getmtime(DB_FILE)
-            self.last_size = os.path.getsize(DB_FILE)
+        # Track both Live and Archive DBs
+        self.db_states = {}  # {db_path: (mtime, size)}
+
+        for db_file in [DB_FILE, ARCHIVE_DB_FILE]:
+            if db_file.exists():
+                self.db_states[str(db_file)] = (
+                    os.path.getmtime(db_file),
+                    os.path.getsize(db_file)
+                )
 
     def run(self):
         self.running = True
@@ -77,58 +82,70 @@ class DBWatcher(threading.Thread):
         self.log_queue.put(("INFO", "🛑 DB Watcher Stopped"))
 
     def _check_and_heal(self):
-        if not DB_FILE.exists(): return
+        """Check both Live and Archive DBs for changes and heal indexes."""
+        for db_path_str, (last_mtime, last_size) in list(self.db_states.items()):
+            db_file = Path(db_path_str)
+            if not db_file.exists():
+                continue
 
-        current_mtime = os.path.getmtime(DB_FILE)
-        current_size = os.path.getsize(DB_FILE)
+            current_mtime = os.path.getmtime(db_file)
+            current_size = os.path.getsize(db_file)
 
-        if current_mtime != self.last_mtime or current_size != self.last_size:
-            self.log_queue.put(("WARN", "🔄 DB Change Detected! Waiting for stabilization..."))
-            
-            if self._wait_for_stabilization(current_mtime, current_size):
-                self.log_queue.put(("INFO", "✅ DB Stabilized. Checking indexes..."))
-                self._heal_index()
-                self.last_mtime = os.path.getmtime(DB_FILE)
-                self.last_size = os.path.getsize(DB_FILE)
-            else:
-                self.log_queue.put(("WARN", "⚠️ DB unstable. Skip this cycle."))
+            if current_mtime != last_mtime or current_size != last_size:
+                db_name = db_file.name
+                self.log_queue.put(("WARN", f"🔄 DB Change Detected ({db_name})! Waiting for stabilization..."))
 
-    def _wait_for_stabilization(self, initial_mtime, initial_size):
+                if self._wait_for_stabilization(db_file, current_mtime, current_size):
+                    self.log_queue.put(("INFO", f"✅ {db_name} Stabilized. Checking indexes..."))
+                    self._heal_index(db_file)
+                    self.db_states[db_path_str] = (
+                        os.path.getmtime(db_file),
+                        os.path.getsize(db_file)
+                    )
+                else:
+                    self.log_queue.put(("WARN", f"⚠️ {db_name} unstable. Skip this cycle."))
+
+    def _wait_for_stabilization(self, db_file, initial_mtime, initial_size):
+        """Wait for DB to stabilize (no changes for 15 seconds)."""
         for _ in range(3):
             time.sleep(5)
-            if not DB_FILE.exists(): return False
-            now_mtime = os.path.getmtime(DB_FILE)
-            now_size = os.path.getsize(DB_FILE)
-            if now_mtime != initial_mtime or now_size != initial_size: return False
+            if not db_file.exists():
+                return False
+            now_mtime = os.path.getmtime(db_file)
+            now_size = os.path.getsize(db_file)
+            if now_mtime != initial_mtime or now_size != initial_size:
+                return False
         return True
 
-    def _heal_index(self):
+    def _heal_index(self, db_file):
+        """Heal indexes for a specific database file."""
+        db_name = db_file.name
         try:
-            conn = sqlite3.connect(f"file:{DB_FILE}?mode=rw", uri=True, timeout=DB_TIMEOUT)
+            conn = sqlite3.connect(f"file:{db_file}?mode=rw", uri=True, timeout=DB_TIMEOUT)
             cursor = conn.cursor()
             cursor.execute("PRAGMA index_list('production_records')")
             indexes = [row[1] for row in cursor.fetchall()]
-            
+
             required_indexes = {
                 "idx_production_date": "CREATE INDEX IF NOT EXISTS idx_production_date ON production_records(production_date)",
                 "idx_item_code": "CREATE INDEX IF NOT EXISTS idx_item_code ON production_records(item_code)",
-                "idx_item_date": "CREATE INDEX IF NOT EXISTS idx_item_date ON production_records(item_code, production_date)",  # v7: 복합 인덱스
+                "idx_item_date": "CREATE INDEX IF NOT EXISTS idx_item_date ON production_records(item_code, production_date)",
             }
-            
+
             restored = []
             for name, sql in required_indexes.items():
                 if name not in indexes:
                     cursor.execute(sql)
                     restored.append(name)
-            
+
             if restored:
                 conn.commit()
-                self.log_queue.put(("SUCCESS", f"♻️ Auto-Healed Indexes: {', '.join(restored)}"))
+                self.log_queue.put(("SUCCESS", f"♻️ [{db_name}] Auto-Healed Indexes: {', '.join(restored)}"))
             else:
-                self.log_queue.put(("INFO", "👍 Indexes are healthy."))
+                self.log_queue.put(("INFO", f"👍 [{db_name}] Indexes are healthy."))
             conn.close()
         except Exception as e:
-            self.log_queue.put(("ERROR", f"❌ Index Heal Failed: {e}"))
+            self.log_queue.put(("ERROR", f"❌ [{db_name}] Index Heal Failed: {e}"))
 
     def manual_trigger(self):
         threading.Thread(target=self._check_and_heal, daemon=True).start()
@@ -373,17 +390,29 @@ class ServerManager(ctk.CTk):
             self.log_queue.put(("WARN", "Watcher is paused."))
 
     def _stream_output(self, proc, widget):
+        """Stream subprocess output with timeout protection."""
         try:
-            for line in iter(proc.stdout.readline, ""):
-                if not line: break
-                text = line.rstrip()
-                level = "INFO"
-                if "ERROR" in text.upper() or "EXCEPTION" in text.upper(): level = "ERROR"
-                elif "WARNING" in text.upper(): level = "WARN"
-                elif "SUCCESS" in text.upper() or "COMPLETE" in text.upper(): level = "SUCCESS"
-                
-                self.append_log(widget, text, level)
-        except Exception: pass
+            while proc.poll() is None:
+                try:
+                    line = proc.stdout.readline()
+                    if not line:
+                        break
+                    text = line.rstrip()
+                    if not text:
+                        continue
+                    level = "INFO"
+                    if "ERROR" in text.upper() or "EXCEPTION" in text.upper():
+                        level = "ERROR"
+                    elif "WARNING" in text.upper():
+                        level = "WARN"
+                    elif "SUCCESS" in text.upper() or "COMPLETE" in text.upper():
+                        level = "SUCCESS"
+
+                    self.append_log(widget, text, level)
+                except Exception:
+                    break
+        except Exception:
+            pass
         finally:
             self.append_log(widget, ">>> Process Exited", "WARN")
 
@@ -405,7 +434,7 @@ class ServerManager(ctk.CTk):
     def start_web(self):
         if self.proc_web and self.proc_web.poll() is None: return
         if _is_port_in_use(DASHBOARD_PORT):
-            tk.messagebox.showerror("Error", f"Port {DASHBOARD_PORT} is in use.")
+            messagebox.showerror("Error", f"Port {DASHBOARD_PORT} is in use.")
             return
 
         self.btn_web_start.configure(state="disabled")
@@ -429,7 +458,7 @@ class ServerManager(ctk.CTk):
     def start_api(self):
         if self.proc_api and self.proc_api.poll() is None: return
         if _is_port_in_use(API_PORT):
-            tk.messagebox.showerror("Error", f"Port {API_PORT} is in use.")
+            messagebox.showerror("Error", f"Port {API_PORT} is in use.")
             return
 
         self.btn_api_start.configure(state="disabled")

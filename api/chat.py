@@ -23,8 +23,9 @@ from datetime import date
 from pathlib import Path
 from typing import List
 
-from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 from google import genai
 from google.genai import types
 from google.genai.errors import ClientError, ServerError
@@ -35,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from shared import get_logger
 from shared.logging_config import get_request_id
+from shared.rate_limiter import chat_rate_limiter
 
 # Load Environment Variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
@@ -70,16 +72,65 @@ RETRYABLE_STATUS_CODES = {429, 500, 503}
 
 
 # ==========================================================
+# Multi-turn Session Store (In-memory)
+# ==========================================================
+SESSION_TTL = 1800  # 30 minutes
+SESSION_MAX_TURNS = 10  # Max conversation turns per session
+
+_sessions: dict[str, dict] = {}
+# Structure: {session_id: {"history": [Content, ...], "last_access": float}}
+
+
+def _get_session_history(session_id: str | None) -> list:
+    """Get conversation history for session. Returns empty list if no session."""
+    if not session_id or session_id not in _sessions:
+        return []
+
+    session = _sessions[session_id]
+    session["last_access"] = time.time()
+    return session["history"]
+
+
+def _save_session_history(session_id: str | None, history: list) -> None:
+    """Save conversation history. Trims to max turns."""
+    if not session_id:
+        return
+
+    # Trim to max turns (each turn = 2 entries: user + model)
+    max_entries = SESSION_MAX_TURNS * 2
+    if len(history) > max_entries:
+        history = history[-max_entries:]
+
+    _sessions[session_id] = {
+        "history": history,
+        "last_access": time.time(),
+    }
+
+
+def _cleanup_expired_sessions() -> None:
+    """Remove sessions that exceeded TTL (lazy cleanup)."""
+    now = time.time()
+    expired = [
+        sid for sid, data in _sessions.items()
+        if now - data["last_access"] > SESSION_TTL
+    ]
+    for sid in expired:
+        del _sessions[sid]
+
+
+# ==========================================================
 # Models
 # ==========================================================
 class ChatRequest(BaseModel):
-    query: str
+    query: str = Field(..., max_length=2000, description="User query text")
+    session_id: str | None = Field(default=None, max_length=100, description="Multi-turn session ID")
 
 
 class ChatResponse(BaseModel):
     answer: str
     status: str = "success"
     tools_used: List[str] = []
+    request_id: str = ""  # 요청 추적용 ID
 
 
 # ==========================================================
@@ -151,13 +202,30 @@ def _calculate_delay(attempt: int) -> float:
 
 
 @router.post("/", response_model=ChatResponse)
-async def chat_with_data(request: ChatRequest):
+async def chat_with_data(request: ChatRequest, http_request: Request):
     """
     Process natural language query using Gemini AI with tool calling.
     Includes automatic retry with exponential backoff for transient errors.
+    Rate limited to 20 requests per minute per IP.
     """
     request_id = get_request_id()
     start_time = time.perf_counter()
+
+    # ==========================================================
+    # Rate Limiting Check
+    # ==========================================================
+    client_ip = http_request.client.host if http_request.client else "unknown"
+    if not chat_rate_limiter.is_allowed(client_ip):
+        retry_after = chat_rate_limiter.retry_after(client_ip)
+        logger.warning(
+            f"[Chat Rate Limited] request_id={request_id} | "
+            f"ip={client_ip} | retry_after={retry_after}s"
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded. Try again in {retry_after} seconds.",
+            headers={"Retry-After": str(retry_after)}
+        )
 
     if not client:
         logger.error(f"[Chat] request_id={request_id} | API key not configured")
@@ -170,6 +238,17 @@ async def chat_with_data(request: ChatRequest):
     # Build dynamic system instruction
     system_instruction = _build_system_instruction()
 
+    # Lazy cleanup expired sessions
+    _cleanup_expired_sessions()
+
+    # Build contents with history
+    history = _get_session_history(request.session_id)
+    user_content = types.Content(
+        role="user",
+        parts=[types.Part.from_text(text=request.query)],
+    )
+    contents = history + [user_content]
+
     # Retry loop
     last_error = None
     total_delay = 0.0
@@ -179,7 +258,7 @@ async def chat_with_data(request: ChatRequest):
             # Generate content with tools and system instruction
             response = client.models.generate_content(
                 model='gemini-2.5-flash',
-                contents=request.query,
+                contents=contents,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
                     tools=[
@@ -212,9 +291,19 @@ async def chat_with_data(request: ChatRequest):
                     f"{token_info} | duration_ms={duration_ms:.1f}"
                 )
 
+            # Save session history (user message + model response)
+            if request.session_id:
+                model_content = types.Content(
+                    role="model",
+                    parts=[types.Part.from_text(text=response.text)],
+                )
+                updated_history = history + [user_content, model_content]
+                _save_session_history(request.session_id, updated_history)
+
             return ChatResponse(
                 answer=response.text,
-                tools_used=tools_used
+                tools_used=tools_used,
+                request_id=request_id
             )
 
         except (ClientError, ServerError) as e:
@@ -264,7 +353,8 @@ async def chat_with_data(request: ChatRequest):
 
     return ChatResponse(
         answer=error_message,
-        status="error"
+        status="error",
+        request_id=request_id
     )
 
 

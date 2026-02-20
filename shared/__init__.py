@@ -6,6 +6,7 @@ This module provides common utilities used across the application:
 - config: Application constants and settings
 - database: DB connection, routing, and query utilities
 - logging_config: Centralized logging configuration
+- rate_limiter: IP-based rate limiting system
 """
 
 from .config import (
@@ -18,6 +19,9 @@ from .config import (
     DASHBOARD_PORT,
     API_PORT,
     DB_TIMEOUT,
+    RATE_LIMIT_CHAT,
+    RATE_LIMIT_API,
+    RATE_LIMIT_WINDOW,
 )
 
 from .database import (
@@ -27,6 +31,7 @@ from .database import (
 
 from .logging_config import setup_logging, get_logger
 from .cache import api_cache, get_db_version, clear_api_cache, get_cache_stats
+from .rate_limiter import RateLimiter, chat_rate_limiter, api_rate_limiter
 
 __all__ = [
     # config
@@ -39,6 +44,9 @@ __all__ = [
     "DASHBOARD_PORT",
     "API_PORT",
     "DB_TIMEOUT",
+    "RATE_LIMIT_CHAT",
+    "RATE_LIMIT_API",
+    "RATE_LIMIT_WINDOW",
     # database
     "DBTargets",
     "DBRouter",
@@ -50,4 +58,8 @@ __all__ = [
     "get_db_version",
     "clear_api_cache",
     "get_cache_stats",
+    # rate limiter
+    "RateLimiter",
+    "chat_rate_limiter",
+    "api_rate_limiter",
 ]

@@ -26,6 +26,12 @@
       "phase": "completed",
       "matchRate": 100,
       "completedAt": "2026-02-13"
+    },
+    {
+      "feature": "sql-tests-and-multiturn-chat",
+      "phase": "completed",
+      "matchRate": 97,
+      "completedAt": "2026-02-13"
     }
   ]
 }

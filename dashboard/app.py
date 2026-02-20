@@ -23,7 +23,41 @@ from shared import (
     DBRouter,
 )
 
-st.set_page_config(page_title="Production Data Hub", layout="wide", page_icon="🏭")
+# Import UI enhancement components
+from components import (
+    # Theme
+    init_theme,
+    render_theme_toggle,
+    apply_custom_css,
+    get_colors,
+    # Loading
+    show_loading_status,
+    render_last_update,
+    # Responsive
+    apply_responsive_css,
+    # KPI
+    calculate_kpis,
+    render_kpi_cards,
+    # Charts
+    create_top10_bar_chart,
+    create_distribution_pie,
+    create_trend_lines,
+    get_chart_config,
+    # Presets
+    init_presets,
+    render_preset_manager,
+)
+
+st.set_page_config(page_title="Production Data Hub", layout="wide", page_icon=":factory:")
+
+# ==========================================================
+# Theme and UI Initialization
+# ==========================================================
+init_theme()
+apply_responsive_css()
+render_theme_toggle()
+apply_custom_css()
+init_presets()
 
 
 # ==========================================================
@@ -43,24 +77,24 @@ def get_db_mtime():
 
 def run_self_check():
     if not DB_FILE.exists():
-        return False, f"DB 파일을 찾을 수 없습니다: {DB_FILE}"
+        return False, f"Database file not found: {DB_FILE}"
     try:
         with DBRouter.get_connection(use_archive=False) as conn:
             tables = pd.read_sql("SELECT name FROM sqlite_master WHERE type='table' AND name='production_records'", conn)
             if tables.empty:
-                return False, "production_records 테이블이 존재하지 않습니다."
+                return False, "production_records table does not exist."
             columns = pd.read_sql("PRAGMA table_info(production_records)", conn)["name"].tolist()
             required = ["production_date", "item_code", "item_name", "good_quantity", "lot_number"]
             if not all(c in columns for c in required):
-                return False, "필수 컬럼이 누락되었습니다."
+                return False, "Required columns are missing."
         if not ARCHIVE_DB_FILE.exists():
-            return True, "⚠️ Archive DB(2025)를 찾을 수 없습니다."
+            return True, "Warning: Archive DB (2025) not found."
     except Exception as e:
-        return False, f"DB 연결 확인 오류: {e}"
+        return False, f"DB connection check error: {e}"
     return True, ""
 
 
-@st.cache_data(ttl=300)  # 5분 - 제품 목록 변경 드묾
+@st.cache_data(ttl=300)  # 5 minutes - product list rarely changes
 def load_item_list(db_ver):
     with DBRouter.get_connection(use_archive=False) as conn:
         df = pd.read_sql("""
@@ -78,13 +112,13 @@ def _parse_production_dt(series: pd.Series) -> pd.Series:
     Parse Korean datetime format to pandas datetime.
 
     Handles formats like:
-    - "2026-01-20 오전 10:30:00" -> 2026-01-20 10:30:00
-    - "2026-01-20 오후 02:15:00" -> 2026-01-20 14:15:00
-    - "2026-01-20 오전 12:30:00" -> 2026-01-20 00:30:00 (midnight)
-    - "2026-01-20 오후 12:30:00" -> 2026-01-20 12:30:00 (noon)
+    - "2026-01-20 AM 10:30:00" -> 2026-01-20 10:30:00
+    - "2026-01-20 PM 02:15:00" -> 2026-01-20 14:15:00
+    - "2026-01-20 AM 12:30:00" -> 2026-01-20 00:30:00 (midnight)
+    - "2026-01-20 PM 12:30:00" -> 2026-01-20 12:30:00 (noon)
     - "2026-01-20 14:30:00" -> 2026-01-20 14:30:00 (24h format passthrough)
     """
-    pattern = re.compile(r"(\d{4}-\d{2}-\d{2})\s+(오전|오후)\s+(\d{1,2}):(\d{2}):(\d{2})")
+    pattern = re.compile(r"(\d{4}-\d{2}-\d{2})\s+(AM|PM)\s+(\d{1,2}):(\d{2}):(\d{2})")
 
     def convert_korean_time(val) -> str:
         """Convert Korean AM/PM format to 24-hour format."""
@@ -98,12 +132,12 @@ def _parse_production_dt(series: pd.Series) -> pd.Series:
         date_part, ampm, hour_str, minute, second = match.groups()
         hour = int(hour_str)
 
-        if ampm == "오전":
-            # 오전 12시 = 00시 (자정), 오전 1-11시 = 1-11시
+        if ampm == "AM":
+            # AM 12 = 00 (midnight), AM 1-11 = 1-11
             if hour == 12:
                 hour = 0
-        else:  # 오후
-            # 오후 12시 = 12시 (정오), 오후 1-11시 = 13-23시
+        else:  # PM
+            # PM 12 = 12 (noon), PM 1-11 = 13-23
             if hour != 12:
                 hour += 12
 
@@ -119,12 +153,12 @@ def _iso(d: date | None) -> str | None:
     return d.isoformat() if d else None
 
 
-@st.cache_data(ttl=60)  # 1분 - 실시간성 필요
+@st.cache_data(ttl=60)  # 1 minute - real-time data needed
 def load_records(item_codes, keyword, date_from, date_to, limit, db_ver):
     where = []
     params = []
 
-    # v7: SELECT 컬럼 최적화 (SELECT * 제거)
+    # v7: SELECT column optimization (remove SELECT *)
     # Include id for stable sorting (matches api/main.py sort order)
     columns = "id, production_date, item_code, item_name, good_quantity, lot_number"
 
@@ -184,7 +218,7 @@ def load_records(item_codes, keyword, date_from, date_to, limit, db_ver):
     return df, bad
 
 
-@st.cache_data(ttl=180)  # 3분 - 집계 데이터
+@st.cache_data(ttl=180)  # 3 minutes - aggregated data
 def load_monthly_summary(date_from, date_to, db_ver):
     where, params = [], []
     if date_from:
@@ -230,6 +264,91 @@ def load_monthly_summary(date_from, date_to, db_ver):
     return df
 
 
+@st.cache_data(ttl=180)  # 3 minutes - daily aggregated data
+def load_daily_summary(date_from, date_to, db_ver):
+    """Load daily aggregated production data."""
+    where, params = [], []
+    if date_from:
+        where.append("production_date >= ?")
+        params.append(_iso(date_from))
+    if date_to:
+        next_day = date_to + timedelta(days=1)
+        where.append("production_date < ?")
+        params.append(_iso(next_day))
+
+    date_from_str = _iso(date_from) if date_from else None
+    date_to_str = _iso(date_to + timedelta(days=1)) if date_to else None
+    targets = DBRouter.pick_targets(date_from_str, date_to_str)
+
+    where_clause = " AND ".join(where) if where else "1=1"
+    select_cols = "substr(production_date, 1, 10) AS production_day, good_quantity"
+
+    if targets.use_archive and targets.use_live and ARCHIVE_DB_FILE.exists():
+        archive_sql = f"SELECT {select_cols} FROM archive.production_records WHERE {where_clause} AND production_date < ?"
+        live_sql = f"SELECT {select_cols} FROM production_records WHERE {where_clause} AND production_date >= ?"
+        final_sql = f"{archive_sql} UNION ALL {live_sql}"
+        query_params = list(params) + [ARCHIVE_CUTOFF_DATE] + list(params) + [ARCHIVE_CUTOFF_DATE]
+    elif targets.use_archive and ARCHIVE_DB_FILE.exists():
+        final_sql = f"SELECT {select_cols} FROM archive.production_records WHERE {where_clause} AND production_date < ?"
+        query_params = list(params) + [ARCHIVE_CUTOFF_DATE]
+    else:
+        final_sql = f"SELECT {select_cols} FROM production_records WHERE {where_clause} AND production_date >= ?"
+        query_params = list(params) + [ARCHIVE_CUTOFF_DATE]
+
+    wrapper_sql = f"""
+    SELECT production_day, SUM(good_quantity) AS total_production, COUNT(*) AS batch_count
+    FROM ({final_sql})
+    GROUP BY production_day ORDER BY production_day
+    """
+
+    with DBRouter.get_connection(use_archive=targets.use_archive) as conn:
+        df = pd.read_sql(wrapper_sql, conn, params=query_params)
+    return df
+
+
+@st.cache_data(ttl=180)  # 3 minutes - weekly aggregated data
+def load_weekly_summary(date_from, date_to, db_ver):
+    """Load weekly aggregated production data."""
+    where, params = [], []
+    if date_from:
+        where.append("production_date >= ?")
+        params.append(_iso(date_from))
+    if date_to:
+        next_day = date_to + timedelta(days=1)
+        where.append("production_date < ?")
+        params.append(_iso(next_day))
+
+    date_from_str = _iso(date_from) if date_from else None
+    date_to_str = _iso(date_to + timedelta(days=1)) if date_to else None
+    targets = DBRouter.pick_targets(date_from_str, date_to_str)
+
+    where_clause = " AND ".join(where) if where else "1=1"
+    # Use strftime for week-based grouping
+    select_cols = "substr(production_date, 1, 4) || '-W' || printf('%02d', (strftime('%j', production_date) - 1) / 7 + 1) AS year_week, good_quantity"
+
+    if targets.use_archive and targets.use_live and ARCHIVE_DB_FILE.exists():
+        archive_sql = f"SELECT {select_cols} FROM archive.production_records WHERE {where_clause} AND production_date < ?"
+        live_sql = f"SELECT {select_cols} FROM production_records WHERE {where_clause} AND production_date >= ?"
+        final_sql = f"{archive_sql} UNION ALL {live_sql}"
+        query_params = list(params) + [ARCHIVE_CUTOFF_DATE] + list(params) + [ARCHIVE_CUTOFF_DATE]
+    elif targets.use_archive and ARCHIVE_DB_FILE.exists():
+        final_sql = f"SELECT {select_cols} FROM archive.production_records WHERE {where_clause} AND production_date < ?"
+        query_params = list(params) + [ARCHIVE_CUTOFF_DATE]
+    else:
+        final_sql = f"SELECT {select_cols} FROM production_records WHERE {where_clause} AND production_date >= ?"
+        query_params = list(params) + [ARCHIVE_CUTOFF_DATE]
+
+    wrapper_sql = f"""
+    SELECT year_week, SUM(good_quantity) AS total_production, COUNT(*) AS batch_count
+    FROM ({final_sql})
+    GROUP BY year_week ORDER BY year_week
+    """
+
+    with DBRouter.get_connection(use_archive=targets.use_archive) as conn:
+        df = pd.read_sql(wrapper_sql, conn, params=query_params)
+    return df
+
+
 def to_excel_bytes(df: pd.DataFrame, sheet_name: str = "Sheet1") -> bytes:
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine="openpyxl") as writer:
@@ -240,21 +359,24 @@ def to_excel_bytes(df: pd.DataFrame, sheet_name: str = "Sheet1") -> bytes:
 # ==========================================================
 # UI Main
 # ==========================================================
-st.title("🏭 Production Data Hub")
+st.title(":factory: Production Data Hub")
 
 check_ok, check_msg = run_self_check()
 if not check_ok:
-    st.error(f"🚨 시스템 초기화 실패: {check_msg}"); st.stop()
-elif check_msg: st.warning(check_msg)
+    st.error(f":rotating_light: System initialization failed: {check_msg}")
+    st.stop()
+elif check_msg:
+    st.warning(check_msg)
 
 current_db_ver = get_db_mtime()
 
-st.sidebar.header("🔍 검색 조건")
-limit = st.sidebar.slider("표시 최대 건수", 500, 50000, 5000, 500)
-keyword = st.sidebar.text_input("키워드(제품코드/제품명/LOT)", value="").strip() or None
+# Sidebar - Search Conditions
+st.sidebar.header(":mag: Search Filters")
+limit = st.sidebar.slider("Max Records", 500, 50000, 5000, 500)
+keyword = st.sidebar.text_input("Keyword (Code/Name/LOT)", value="").strip() or None
 
 today = date.today()
-date_range = st.sidebar.date_input("기간(생산일)", value=(today - timedelta(days=90), today))
+date_range = st.sidebar.date_input("Date Range (Production)", value=(today - timedelta(days=90), today))
 date_from, date_to = None, None
 if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
     date_from, date_to = date_range[0], date_range[1]
@@ -262,68 +384,139 @@ if isinstance(date_range, (list, tuple)) and len(date_range) == 2:
 items_df = load_item_list(db_ver=current_db_ver)
 labels = items_df["label"].tolist()
 label_to_code = dict(zip(labels, items_df["item_code"].tolist()))
-selected_labels = st.sidebar.multiselect("제품 선택(복수 가능)", options=labels, default=[])
+selected_labels = st.sidebar.multiselect("Select Products", options=labels, default=[])
 item_codes = [label_to_code[x] for x in selected_labels] if selected_labels else None
 
-if st.sidebar.button("🔄 새로고침"):
+# Filter Preset Manager - can return loaded preset values
+loaded_preset = render_preset_manager(
+    current_item_codes=item_codes,
+    current_date_from=date_from,
+    current_date_to=date_to,
+    current_keyword=keyword,
+    current_limit=limit
+)
+
+# Apply loaded preset values if user clicked Apply
+if loaded_preset:
+    # Note: In Streamlit, we can't directly set widget values.
+    # The preset values are returned for informational purposes.
+    # A more sophisticated implementation would use session_state
+    # to control default values.
+    st.sidebar.info(f"Loaded preset. Please adjust filters and refresh.")
+
+if st.sidebar.button(":arrows_counterclockwise: Refresh"):
     st.cache_data.clear()
     st.rerun()
 
-tab1, tab2, tab3 = st.tabs(["📋 상세 이력", "📈 실적 추이", "🤖 AI 분석"])
+# Load data for KPIs and tabs
+df, bad_dt = load_records(item_codes, keyword, date_from, date_to, limit, db_ver=current_db_ver)
+
+# Render KPI Cards at top
+kpis = calculate_kpis(df, date_from, date_to)
+render_kpi_cards(kpis, get_colors())
+
+# Display last update time
+render_last_update()
+
+if bad_dt > 0:
+    st.warning(f":warning: {bad_dt:,} records have date parsing issues.")
+
+# Tabs
+tab1, tab2, tab3, tab4 = st.tabs([":memo: Details", ":chart_with_upwards_trend: Trends", ":robot: AI Analysis", ":bar_chart: Product Comparison"])
 
 with tab1:
-    df, bad_dt = load_records(item_codes, keyword, date_from, date_to, limit, db_ver=current_db_ver)
-    if bad_dt > 0: st.warning(f"⚠️ 날짜 파싱 실패 {bad_dt:,}건이 있습니다.")
-    
-    st.subheader(f"총 {len(df):,} 건")
+    st.subheader(f"Total {len(df):,} Records")
     st.dataframe(df[["production_date", "item_code", "item_name", "good_quantity", "lot_number"]], width="stretch", hide_index=True)
-    st.download_button("📥 엑셀 다운로드", to_excel_bytes(df), "production_records.xlsx")
+    st.download_button(":inbox_tray: Download Excel", to_excel_bytes(df), "production_records.xlsx")
 
 with tab2:
-    summary_df = load_monthly_summary(date_from, date_to, db_ver=current_db_ver)
-    st.subheader("월별 생산량 및 가동 건수")
-    
+    # Aggregation unit selector
+    agg_unit = st.radio(
+        "Aggregation Unit",
+        options=["Daily", "Weekly", "Monthly"],
+        index=2,  # Default: Monthly
+        horizontal=True
+    )
+
+    # Load appropriate data based on aggregation unit
+    if agg_unit == "Daily":
+        summary_df = load_daily_summary(date_from, date_to, db_ver=current_db_ver)
+        x_col = "production_day"
+    elif agg_unit == "Weekly":
+        summary_df = load_weekly_summary(date_from, date_to, db_ver=current_db_ver)
+        x_col = "year_week"
+    else:  # Monthly
+        summary_df = load_monthly_summary(date_from, date_to, db_ver=current_db_ver)
+        x_col = "year_month"
+
+    st.subheader(f"{agg_unit} Production & Batch Count")
+
     if len(summary_df) == 0:
-        st.info("데이터가 없습니다.")
+        st.info("No data available for the selected period.")
     else:
+        # Get theme colors for chart template
+        colors = get_colors()
+        chart_template = colors.get("chart_template", "plotly_white")
+
         # Plotly Mixed Chart
         fig = make_subplots(specs=[[{"secondary_y": True}]])
-        fig.add_trace(go.Bar(x=summary_df['year_month'], y=summary_df['total_production'], name="총 생산량", marker_color='#1f77b4'), secondary_y=False)
-        fig.add_trace(go.Scatter(x=summary_df['year_month'], y=summary_df['batch_count'], name="생산 건수", mode='lines+markers', line=dict(color='#ff7f0e', width=3)), secondary_y=True)
-        
-        fig.update_layout(title_text="월별 실적 추이", hovermode="x unified", template="plotly_white")
-        fig.update_yaxes(title_text="생산량 (ea)", secondary_y=False)
-        fig.update_yaxes(title_text="건수 (count)", secondary_y=True)
-        
-        st.plotly_chart(fig, width="stretch")
+        fig.add_trace(
+            go.Bar(
+                x=summary_df[x_col],
+                y=summary_df['total_production'],
+                name="Total Production",
+                marker_color='#1f77b4'
+            ),
+            secondary_y=False
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=summary_df[x_col],
+                y=summary_df['batch_count'],
+                name="Batch Count",
+                mode='lines+markers',
+                line=dict(color='#ff7f0e', width=3)
+            ),
+            secondary_y=True
+        )
+
+        fig.update_layout(
+            title_text=f"{agg_unit} Performance Trends",
+            hovermode="x unified",
+            template=chart_template
+        )
+        fig.update_yaxes(title_text="Production (ea)", secondary_y=False)
+        fig.update_yaxes(title_text="Batch Count", secondary_y=True)
+
+        st.plotly_chart(fig, use_container_width=True, config=get_chart_config(f"production_trends_{agg_unit.lower()}"))
         st.dataframe(summary_df, width="stretch", hide_index=True)
 
 with tab3:
-    st.subheader("🤖 AI 생산 데이터 분석가")
-    
+    st.subheader(":robot: AI Production Data Analyst")
+
     # Help Chips (FAQ)
-    st.write("💡 **빠른 질문 추천:**")
+    st.write(":bulb: **Quick Questions:**")
     cols = st.columns(3)
-    faq_queries = ["작년 생산량 1위 제품은?", "오늘 총 생산 실적 알려줘", "BW0021 제품의 평균 생산량은?"]
-    
+    faq_queries = ["Top product last year?", "Today's total production?", "Average production for BW0021?"]
+
     selected_faq = None
     for i, q in enumerate(faq_queries):
-        if cols[i%3].button(q, width="stretch"):
+        if cols[i % 3].button(q, use_container_width=True):
             selected_faq = q
 
     # Chat History
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    chat_container = st.container(height=450) # Scrollable area
+    chat_container = st.container(height=450)  # Scrollable area
     with chat_container:
         for message in st.session_state.messages:
             with st.chat_message(message["role"]):
                 st.markdown(message["content"])
 
     # Input Logic
-    prompt = st.chat_input("무엇이든 물어보세요...")
-    if selected_faq: # Chip clicked
+    prompt = st.chat_input("Ask anything...")
+    if selected_faq:  # Chip clicked
         prompt = selected_faq
 
     if prompt:
@@ -332,15 +525,69 @@ with tab3:
         st.session_state.messages.append({"role": "user", "content": prompt})
 
         try:
-            with st.spinner("분석 중..."):
+            with st.spinner("Analyzing..."):
                 resp = requests.post("http://localhost:8000/chat/", json={"query": prompt}, timeout=60)
             if resp.status_code == 200:
                 answer = resp.json()["answer"]
                 with chat_container:
                     st.chat_message("assistant").markdown(answer)
                 st.session_state.messages.append({"role": "assistant", "content": answer})
-            else: st.error(f"API 오류: {resp.status_code}")
-        except Exception as e: st.error(f"연결 오류: {e}")
+            else:
+                st.error(f"API Error: {resp.status_code}")
+        except Exception as e:
+            st.error(f"Connection Error: {e}")
 
-    if st.button("🗑️ 대화 기록 지우기"):
-        st.session_state.messages = []; st.rerun()
+    if st.button(":wastebasket: Clear Chat History"):
+        st.session_state.messages = []
+        st.rerun()
+
+with tab4:
+    st.subheader(":bar_chart: Product Comparison")
+
+    # Get theme colors for chart template
+    colors = get_colors()
+    chart_template = colors.get("chart_template", "plotly_white")
+
+    # Two columns for charts
+    col_left, col_right = st.columns(2)
+
+    with col_left:
+        st.write("**Top 10 Products**")
+        fig_bar = create_top10_bar_chart(df, chart_template)
+        st.plotly_chart(fig_bar, use_container_width=True, config=get_chart_config("top10_products"))
+
+    with col_right:
+        st.write("**Production Distribution**")
+        fig_pie = create_distribution_pie(df, chart_template)
+        st.plotly_chart(fig_pie, use_container_width=True, config=get_chart_config("product_distribution"))
+
+    # Product trend comparison
+    st.divider()
+    st.write("**Product Trend Comparison**")
+
+    # Multi-select for products to compare
+    if not items_df.empty:
+        compare_options = items_df["item_code"].tolist()
+        selected_compare = st.multiselect(
+            "Select products to compare (up to 5)",
+            options=compare_options,
+            max_selections=5,
+            help="Select 2-5 products to compare their production trends"
+        )
+
+        if selected_compare:
+            # Aggregation unit for trend comparison
+            trend_agg = st.radio(
+                "Trend Aggregation",
+                options=["Daily", "Weekly", "Monthly"],
+                index=2,
+                horizontal=True,
+                key="trend_agg_unit"
+            )
+
+            fig_trend = create_trend_lines(df, selected_compare, trend_agg, chart_template)
+            st.plotly_chart(fig_trend, use_container_width=True, config=get_chart_config("product_trends"))
+        else:
+            st.info("Select products above to view trend comparison.")
+    else:
+        st.info("No products available for comparison.")

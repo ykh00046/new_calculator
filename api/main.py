@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.gzip import GZipMiddleware
-from fastapi.responses import ORJSONResponse
+from fastapi.responses import ORJSONResponse, JSONResponse
 
 # Add parent directory to path for shared module import
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -25,8 +25,10 @@ from shared import (
     get_logger,
     api_cache,
     get_cache_stats,
+    api_rate_limiter,
 )
 from shared.logging_config import QueryLogger, set_request_id
+from shared.rate_limiter import RateLimiter
 
 from . import chat  # Import chat module
 
@@ -59,13 +61,66 @@ app.include_router(chat.router)
 
 
 # ==========================================================
-# Middleware for Request ID
+# Middleware for Request ID and Rate Limiting
 # ==========================================================
+# 요청 카운터 for 주기적 cleanup
+_request_counter = 0
+_CLEANUP_INTERVAL = 100
+
+
 @app.middleware("http")
-async def add_request_id(request, call_next):
+async def add_request_id_and_rate_limit(request, call_next):
+    """Add request ID and apply rate limiting to API endpoints."""
+    global _request_counter
+
     request_id = set_request_id()
+
+    # Skip rate limiting for health checks
+    if request.url.path in ["/", "/healthz", "/healthz/ai", "/docs", "/openapi.json"]:
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+    # Apply rate limiting to API endpoints (except /chat which has its own limiter)
+    if request.url.path.startswith("/chat"):
+        # Chat has its own rate limiter in the endpoint
+        response = await call_next(request)
+        response.headers["X-Request-ID"] = request_id
+        return response
+
+    # General API rate limiting
+    client_ip = request.client.host if request.client else "unknown"
+    if not api_rate_limiter.is_allowed(client_ip):
+        retry_after = api_rate_limiter.retry_after(client_ip)
+        logger.warning(
+            f"[Rate Limited] ip={client_ip} | path={request.url.path} | "
+            f"retry_after={retry_after}s"
+        )
+        return JSONResponse(
+            status_code=429,
+            content={"detail": f"Rate limit exceeded. Try again in {retry_after} seconds."},
+            headers={
+                "Retry-After": str(retry_after),
+                "X-Request-ID": request_id,
+                "X-RateLimit-Limit": "60",
+                "X-RateLimit-Remaining": "0",
+            }
+        )
+
+    # Add rate limit headers to response
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
+    response.headers["X-RateLimit-Limit"] = "60"
+    response.headers["X-RateLimit-Remaining"] = str(api_rate_limiter.remaining(client_ip))
+
+    # Periodic cleanup
+    _request_counter += 1
+    if _request_counter >= _CLEANUP_INTERVAL:
+        _request_counter = 0
+        removed = api_rate_limiter.cleanup()
+        if removed > 0:
+            logger.debug(f"[Rate Limiter Cleanup] Removed {removed} expired IPs")
+
     return response
 
 
@@ -92,6 +147,61 @@ def _normalize_date(date_str: str | None, add_days: int = 0) -> str | None:
             status_code=400,
             detail=f"Invalid date format: '{date_str}'. Expected YYYY-MM-DD (e.g., 2026-01-15)."
         )
+
+
+def _validate_date_range(date_from: str | None, date_to: str | None) -> None:
+    """
+    Validate that date_from <= date_to.
+
+    Args:
+        date_from: Start date string (YYYY-MM-DD format, already normalized)
+        date_to: End date string (YYYY-MM-DD format, already normalized)
+
+    Raises:
+        HTTPException: If date_from > date_to
+    """
+    if not date_from or not date_to:
+        return
+
+    try:
+        from_date = dt.date.fromisoformat(date_from)
+        to_date = dt.date.fromisoformat(date_to)
+
+        if from_date > to_date:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid date range: date_from ({date_from}) cannot be after date_to ({date_to})."
+            )
+    except ValueError:
+        # Already handled by _normalize_date, but just in case
+        pass
+
+
+def _validate_length(value: str | None, max_length: int, field_name: str) -> str | None:
+    """
+    Validate string length constraint.
+
+    Args:
+        value: String value to validate
+        max_length: Maximum allowed length
+        field_name: Field name for error message
+
+    Returns:
+        Original value if valid
+
+    Raises:
+        HTTPException: If value exceeds max_length
+    """
+    if value is None:
+        return None
+
+    if len(value) > max_length:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field_name} exceeds maximum length of {max_length} characters (got {len(value)})."
+        )
+
+    return value
 
 
 # ==========================================================
@@ -283,8 +393,8 @@ async def ai_health_check():
 
 @app.get("/records")
 def get_records(
-    item_code: str | None = None,
-    q: str | None = None,
+    item_code: str | None = Query(default=None, max_length=50, description="Item code filter"),
+    q: str | None = Query(default=None, max_length=100, description="Search query"),
     lot_number: str | None = Query(default=None, description="Lot number prefix filter (e.g., LT2026)"),
     date_from: str | None = Query(default=None, description="YYYY-MM-DD (inclusive)"),
     date_to: str | None = Query(default=None, description="YYYY-MM-DD (inclusive)"),
@@ -301,10 +411,14 @@ def get_records(
     v7 Enhancement:
     - Cursor-based pagination (recommended for large datasets)
     - offset is deprecated but still supported for backward compatibility
+    - Input validation for length constraints and date range
     """
     # Normalize dates
     date_from_n = _normalize_date(date_from)
     date_to_n = _normalize_date(date_to, add_days=1)  # inclusive -> exclusive
+
+    # Validate date range (date_from_n is the original, date_to_n has +1 day)
+    _validate_date_range(date_from_n, date_to_n if not date_to_n else date_to)
 
     # Determine target DBs (Section 6.1)
     targets = DBRouter.pick_targets(date_from_n, date_to_n)
@@ -477,11 +591,15 @@ def _list_items_cached(q: str | None, limit: int) -> list[dict]:
 
 
 @app.get("/items")
-def list_items(q: str | None = None, limit: int = Query(default=200, ge=1, le=2000)):
+def list_items(
+    q: str | None = Query(default=None, max_length=100, description="Search query"),
+    limit: int = Query(default=200, ge=1, le=2000)
+):
     """
     List products/items with record counts.
     Queries Live DB only for performance (discontinued products may be excluded).
     v7: Cached with db_mtime invalidation.
+    v9: Added input length constraints.
     """
     return _list_items_cached(q, limit)
 
@@ -529,9 +647,14 @@ def monthly_total(
     Monthly production totals with optimized aggregation (Section B.1).
     Pre-aggregates in each DB before merging for better performance.
     v7: Cached with db_mtime invalidation.
+    v8: Added date range validation.
     """
     date_from_n = _normalize_date(date_from)
     date_to_n = _normalize_date(date_to, add_days=1)
+
+    # Validate date range
+    _validate_date_range(date_from_n, date_to_n if not date_to_n else date_to)
+
     return _monthly_total_cached(date_from_n, date_to_n)
 
 
@@ -578,16 +701,21 @@ def _summary_by_item_cached(
 def summary_by_item(
     date_from: str = Query(..., description="YYYY-MM-DD (inclusive, required)"),
     date_to: str = Query(..., description="YYYY-MM-DD (inclusive, required)"),
-    item_code: str | None = Query(default=None, description="Filter by specific item"),
+    item_code: str | None = Query(default=None, max_length=50, description="Filter by specific item"),
     limit: int = Query(default=100, ge=1, le=1000),
 ):
     """
     Production summary by item for arbitrary date range.
     Returns aggregated totals per item (no monthly breakdown).
     v8: Cached with db_mtime invalidation.
+    v9: Added date range validation and input length constraints.
     """
     date_from_n = _normalize_date(date_from)
     date_to_n = _normalize_date(date_to, add_days=1)
+
+    # Validate date range
+    _validate_date_range(date_from_n, date_to_n if not date_to_n else date_to)
+
     return _summary_by_item_cached(date_from_n, date_to_n, item_code, limit)
 
 
@@ -640,11 +768,12 @@ def _monthly_by_item_cached(
 @app.get("/summary/monthly_by_item")
 def monthly_by_item(
     year_month: str | None = Query(default=None, description="e.g., 2026-01"),
-    item_code: str | None = None,
+    item_code: str | None = Query(default=None, max_length=50, description="Filter by item code"),
     limit: int = Query(default=5000, ge=1, le=50000),
 ):
     """
     Monthly production summary by item.
     v8: Cached with db_mtime invalidation.
+    v9: Added input length constraints.
     """
     return _monthly_by_item_cached(year_month, item_code, limit)

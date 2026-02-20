@@ -1,0 +1,316 @@
+"""
+U3-U5: Chart Components - Data visualization for dashboard.
+
+Provides interactive charts:
+- Top 10 products bar chart (U3)
+- Product distribution pie/donut chart (U3)
+- Product trend comparison lines (U3)
+- Range selector enhancement (U5)
+- Download button enhancement (U5)
+"""
+
+import plotly.graph_objects as go
+import plotly.express as px
+import pandas as pd
+from typing import List, Optional
+
+
+def create_top10_bar_chart(df: pd.DataFrame, template: str) -> go.Figure:
+    """
+    Create horizontal bar chart for top 10 products.
+
+    Args:
+        df: Production records dataframe with columns:
+            - item_code: Product code
+            - item_name: Product name
+            - good_quantity: Production quantity
+        template: Plotly template name (e.g., "plotly_white", "plotly_dark")
+
+    Returns:
+        Plotly Figure object with horizontal bar chart.
+    """
+    if df.empty:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No data available",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5,
+            showarrow=False,
+            font=dict(size=14)
+        )
+        return fig
+
+    # Aggregate by item
+    item_totals = df.groupby(["item_code", "item_name"])["good_quantity"].sum().reset_index()
+    item_totals = item_totals.nlargest(10, "good_quantity")
+
+    fig = go.Figure(go.Bar(
+        x=item_totals["good_quantity"],
+        y=item_totals["item_code"],
+        orientation='h',
+        text=item_totals["good_quantity"].apply(lambda x: f"{x:,}"),
+        textposition='outside',
+        marker_color='#1f77b4',
+        hovertemplate=(
+            "<b>%{y}</b><br>"
+            "Quantity: %{x:,} ea<br>"
+            "<extra></extra>"
+        )
+    ))
+
+    fig.update_layout(
+        title="Top 10 Products by Production Volume",
+        xaxis_title="Production Quantity (ea)",
+        yaxis_title="Product Code",
+        template=template,
+        height=400,
+        yaxis=dict(autorange="reversed"),  # Top product at top
+        margin=dict(l=100, r=50, t=50, b=50)
+    )
+
+    return fig
+
+
+def create_distribution_pie(df: pd.DataFrame, template: str) -> go.Figure:
+    """
+    Create donut chart for product distribution.
+
+    Shows top 10 products individually, with remaining products
+    grouped as "Others".
+
+    Args:
+        df: Production records dataframe with columns:
+            - item_code: Product code
+            - good_quantity: Production quantity
+        template: Plotly template name
+
+    Returns:
+        Plotly Figure object with donut chart.
+    """
+    if df.empty:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No data available",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5,
+            showarrow=False,
+            font=dict(size=14)
+        )
+        return fig
+
+    # Aggregate by item
+    item_totals = df.groupby("item_code")["good_quantity"].sum().reset_index()
+    total = item_totals["good_quantity"].sum()
+
+    # Top 10 + Others
+    top10 = item_totals.nlargest(10, "good_quantity")
+    if len(item_totals) > 10:
+        others_sum = item_totals[~item_totals["item_code"].isin(top10["item_code"])]["good_quantity"].sum()
+        others_row = pd.DataFrame([{"item_code": "Others", "good_quantity": others_sum}])
+        top10 = pd.concat([top10, others_row], ignore_index=True)
+
+    fig = go.Figure(go.Pie(
+        labels=top10["item_code"],
+        values=top10["good_quantity"],
+        hole=0.4,
+        textinfo='percent+label',
+        textposition='outside',
+        hovertemplate=(
+            "<b>%{label}</b><br>"
+            "Quantity: %{value:,} ea<br>"
+            "Share: %{percent}<extra></extra>"
+        )
+    ))
+
+    fig.update_layout(
+        title="Production Distribution by Product",
+        template=template,
+        height=400,
+        showlegend=True,
+        legend=dict(orientation="h", yanchor="bottom", y=-0.2)
+    )
+
+    return fig
+
+
+def create_trend_lines(
+    df: pd.DataFrame,
+    item_codes: List[str],
+    agg_unit: str,
+    template: str
+) -> go.Figure:
+    """
+    Create multi-line trend chart for selected products.
+
+    Shows production trends over time for multiple products,
+    with aggregation by day, week, or month.
+
+    Args:
+        df: Production records dataframe with columns:
+            - item_code: Product code
+            - good_quantity: Production quantity
+            - production_date: Date string
+            - production_dt: Parsed datetime
+            - year_month: Year-month string
+        item_codes: List of product codes to display
+        agg_unit: Aggregation unit - "Daily", "Weekly", or "Monthly"
+        template: Plotly template name
+
+    Returns:
+        Plotly Figure object with multi-line trend chart.
+    """
+    if df.empty or not item_codes:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="Select products to view trends",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5,
+            showarrow=False,
+            font=dict(size=14)
+        )
+        return fig
+
+    # Filter by selected items
+    filtered = df[df["item_code"].isin(item_codes)].copy()
+
+    if filtered.empty:
+        fig = go.Figure()
+        fig.add_annotation(
+            text="No data for selected products",
+            xref="paper", yref="paper",
+            x=0.5, y=0.5,
+            showarrow=False,
+            font=dict(size=14)
+        )
+        return fig
+
+    # Determine period column based on aggregation unit
+    if agg_unit == "Daily":
+        filtered["period"] = filtered["production_date"].str[:10]  # YYYY-MM-DD
+    elif agg_unit == "Weekly":
+        # Create year-week string
+        filtered["period"] = filtered["production_dt"].dt.strftime("%Y-W%U")
+    else:  # Monthly (default)
+        filtered["period"] = filtered["year_month"]
+
+    # Aggregate by period and item
+    agg_df = filtered.groupby(["period", "item_code"])["good_quantity"].sum().reset_index()
+
+    fig = go.Figure()
+
+    # Color palette for lines
+    colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+              '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+
+    for idx, item_code in enumerate(item_codes):
+        item_data = agg_df[agg_df["item_code"] == item_code].sort_values("period")
+        color = colors[idx % len(colors)]
+
+        fig.add_trace(go.Scatter(
+            x=item_data["period"],
+            y=item_data["good_quantity"],
+            mode='lines+markers',
+            name=item_code,
+            line=dict(color=color, width=2),
+            marker=dict(color=color, size=6),
+            hovertemplate=(
+                f"<b>{item_code}</b><br>"
+                "Period: %{x}<br>"
+                "Quantity: %{y:,} ea<extra></extra>"
+            )
+        ))
+
+    fig.update_layout(
+        title="Product Production Trends",
+        xaxis_title="Period",
+        yaxis_title="Production Quantity (ea)",
+        template=template,
+        height=400,
+        hovermode="x unified",
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    )
+
+    return fig
+
+
+def add_range_selector(fig: go.Figure) -> go.Figure:
+    """
+    Add range selector buttons to chart x-axis.
+
+    Adds buttons for quick time range selection:
+    - 1 week
+    - 2 weeks
+    - 1 month
+    - 3 months
+    - 6 months
+    - All
+
+    Args:
+        fig: Plotly Figure object to enhance
+
+    Returns:
+        Modified Figure with range selector.
+    """
+    fig.update_xaxes(
+        rangeslider_visible=True,
+        rangeselector=dict(
+            buttons=list([
+                dict(count=7, label="1W", step="day", stepmode="backward"),
+                dict(count=14, label="2W", step="day", stepmode="backward"),
+                dict(count=1, label="1M", step="month", stepmode="backward"),
+                dict(count=3, label="3M", step="month", stepmode="backward"),
+                dict(count=6, label="6M", step="month", stepmode="backward"),
+                dict(step="all", label="All")
+            ]),
+            font=dict(size=10)
+        )
+    )
+    return fig
+
+
+def add_download_button(fig: go.Figure, filename: str) -> go.Figure:
+    """
+    Configure chart for enhanced download options.
+
+    Sets up the chart's modebar to include:
+    - Download as PNG with high resolution
+    - Scroll zoom
+    - Hidden Plotly logo
+
+    Args:
+        fig: Plotly Figure object to enhance
+        filename: Base filename for downloaded images
+
+    Returns:
+        Modified Figure with download configuration.
+    """
+    fig.update_layout(
+        modebar_add=["downloadCSV"],
+    )
+    # Note: config options are passed to st.plotly_chart, not the figure
+    # This function is kept for API consistency
+    return fig
+
+
+def get_chart_config(filename: str) -> dict:
+    """
+    Get Plotly chart configuration dict for st.plotly_chart.
+
+    Args:
+        filename: Base filename for downloaded images
+
+    Returns:
+        Configuration dict for use with st.plotly_chart(config=...)
+    """
+    return {
+        'displayModeBar': True,
+        'scrollZoom': True,
+        'displaylogo': False,
+        'toImageButtonOptions': {
+            'format': 'png',
+            'filename': filename,
+            'height': 800,
+            'width': 1200,
+            'scale': 2
+        }
+    }

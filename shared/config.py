@@ -59,3 +59,11 @@ LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 # - Monthly aggregation uses substr(production_date, 1, 7)
 # - API input date_from/date_to normalized to 'YYYY-MM-DD'
 DATE_FORMAT = "%Y-%m-%d"
+
+# ==========================================================
+# Rate Limiting Configuration
+# ==========================================================
+# Chat endpoint is more restrictive due to AI API costs
+RATE_LIMIT_CHAT = 20      # requests per minute
+RATE_LIMIT_API = 60       # requests per minute (general API)
+RATE_LIMIT_WINDOW = 60    # seconds
