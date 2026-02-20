@@ -14,7 +14,8 @@
 6. [AI 채팅 API](#6-ai-채팅-api)
 7. [에러 처리](#7-에러-처리)
 8. [모범 사례](#8-모범-사례)
-9. [FAQ](#9-faq)
+9. [Rate Limiting](#9-rate-limiting-new)
+10. [FAQ](#10-faq)
 
 ---
 
@@ -153,10 +154,17 @@ AI API 연결 상태 확인 (10분 캐싱)
 |---------|------|------|--------|------|
 | `item_code` | string | X | - | 제품 코드로 필터링 |
 | `q` | string | X | - | 제품명/코드 검색 (부분 일치) |
+| `lot_number` | string | X | - | 로트 번호 필터 (prefix 매칭) **NEW** |
 | `date_from` | string | X | - | 시작일 (YYYY-MM-DD) |
 | `date_to` | string | X | - | 종료일 (YYYY-MM-DD) |
+| `min_quantity` | int | X | - | 최소 생산량 **NEW** |
+| `max_quantity` | int | X | - | 최대 생산량 **NEW** |
 | `limit` | int | X | 1000 | 조회 건수 (1-5000) |
 | `cursor` | string | X | - | 페이지네이션 커서 |
+
+**입력 검증 (v1.0.2):**
+- `date_from > date_to`인 경우 **400 Bad Request** 반환
+- 문자열 파라미터 최대 길이 제한 적용
 
 **응답:**
 ```json
@@ -188,6 +196,15 @@ curl "http://localhost:8001/records?date_from=2026-01-01&date_to=2026-01-31"
 
 # 제품명 검색
 curl "http://localhost:8001/records?q=물"
+
+# 로트 번호 검색 (NEW)
+curl "http://localhost:8001/records?lot_number=LT2026"
+
+# 생산량 범위 필터 (NEW)
+curl "http://localhost:8001/records?min_quantity=100&max_quantity=500"
+
+# 복합 필터 (NEW)
+curl "http://localhost:8001/records?lot_number=LT2026&min_quantity=100&item_code=B0061"
 
 # 페이지네이션
 curl "http://localhost:8001/records?limit=100&cursor=eyJkIjogIjIwMjYtMDEtMjAifQ=="
@@ -383,19 +400,56 @@ curl "http://localhost:8001/summary/monthly_by_item?item_code=B0061"
 #### `POST /chat/`
 자연어로 데이터 질의
 
+**Rate Limit:** 20 requests/min per IP
+
 **요청 본문:**
 ```json
 {
-  "query": "2026년 1월에 가장 많이 생산된 제품은?"
+  "query": "2026년 1월에 가장 많이 생산된 제품은?",
+  "session_id": "optional-session-id"  // 멀티턴 대화용 (선택)
 }
 ```
+
+**파라미터:**
+
+| 파라미터 | 타입 | 필수 | 설명 |
+|----------|------|------|------|
+| `query` | string | O | 질문 내용 (최대 2000자) |
+| `session_id` | string | X | 세션 ID (멀티턴 대화, 최대 100자) |
 
 **응답:**
 ```json
 {
   "answer": "2026년 1월에 가장 많이 생산된 제품은 B0061 (제품A)로 총 12,500개입니다.",
   "status": "success",
+  "request_id": "abc123def456",  // 추적용 ID (NEW)
   "tools_used": ["search_production_items", "get_top_items"]
+}
+```
+
+**멀티턴 대화 (NEW):**
+```bash
+# 첫 번째 질문
+curl -X POST "http://localhost:8001/chat/" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "B0061 제품의 이번 달 생산량은?", "session_id": "my-session"}'
+
+# 후속 질문 (같은 session_id 사용)
+curl -X POST "http://localhost:8001/chat/" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "그럼 지난달은?", "session_id": "my-session"}'
+```
+
+**세션 관리:**
+- 세션 TTL: 30분
+- 최대 턴 수: 10턴
+- TTL 초과 시 새 세션으로 자동 재시작
+
+**Rate Limit 초과 시:**
+```json
+// HTTP 429 Too Many Requests
+{
+  "detail": "Rate limit exceeded. Try again in 30 seconds."
 }
 ```
 
@@ -1027,7 +1081,68 @@ def process_all_records():
 
 ---
 
-## 9. FAQ
+## 9. Rate Limiting (NEW)
+
+### 9.1 제한 정책
+
+| 엔드포인트 | 제한 | 윈도우 |
+|-----------|------|--------|
+| `POST /chat/` | 20 requests | 1분 (IP 기준) |
+| 기타 모든 API | 60 requests | 1분 (IP 기준) |
+
+### 9.2 응답 헤더
+
+모든 API 응답에 다음 헤더가 포함됩니다:
+
+```
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 45
+```
+
+### 9.3 제한 초과 처리
+
+**429 응답:**
+```json
+{
+  "detail": "Rate limit exceeded. Try again in 30 seconds."
+}
+```
+
+**헤더:**
+```
+Retry-After: 30
+```
+
+### 9.4 Python 예제
+
+```python
+import requests
+import time
+
+def safe_chat(client, query, max_retries=3):
+    """Rate Limit을 고려한 안전한 채팅"""
+    for attempt in range(max_retries):
+        response = requests.post(
+            f"{BASE_URL}/chat/",
+            json={"query": query},
+            timeout=30
+        )
+
+        if response.status_code == 200:
+            return response.json()
+        elif response.status_code == 429:
+            retry_after = int(response.headers.get("Retry-After", 60))
+            print(f"Rate limited. Waiting {retry_after} seconds...")
+            time.sleep(retry_after)
+        else:
+            response.raise_for_status()
+
+    raise Exception("Max retries exceeded")
+```
+
+---
+
+## 10. FAQ
 
 ### Q1. API 인증은 어떻게 하나요?
 
@@ -1036,8 +1151,24 @@ def process_all_records():
 
 ### Q2. 요청 제한(Rate Limit)이 있나요?
 
-서버 측 Rate Limit은 없지만, AI 채팅 API는 Google Gemini API의 제한을 따릅니다.
-과도한 요청은 피해주세요.
+**네, 다음과 같은 Rate Limit이 적용됩니다:**
+
+| 엔드포인트 | 제한 | 초과 시 응답 |
+|-----------|------|-------------|
+| `POST /chat/` | 20 req/min per IP | 429 Too Many Requests |
+| 기타 API | 60 req/min per IP | 429 Too Many Requests |
+
+**Rate Limit 초과 시 응답:**
+```json
+{
+  "detail": "Rate limit exceeded. Try again in 30 seconds."
+}
+```
+
+**응답 헤더:**
+- `Retry-After`: 재시도 가능까지 남은 초
+- `X-RateLimit-Limit`: 분당 최대 요청 수
+- `X-RateLimit-Remaining`: 남은 요청 수
 
 ### Q3. 데이터는 어디까지 조회 가능한가요?
 
@@ -1081,21 +1212,31 @@ with open("export.csv", "w", newline="", encoding="utf-8") as f:
 
 ## 부록: API 요약 표
 
-| 메서드 | 엔드포인트 | 설명 |
-|--------|-----------|------|
-| GET | `/` | API 상태 |
-| GET | `/healthz` | 상세 헬스 체크 |
-| GET | `/healthz/ai` | AI API 상태 |
-| GET | `/records` | 레코드 목록 |
-| GET | `/records/{item_code}` | 특정 제품 레코드 |
-| GET | `/items` | 제품 목록 |
-| GET | `/summary/monthly_total` | 월별 총 생산량 |
-| GET | `/summary/by_item` | 기간별 제품별 생산량 |
-| GET | `/summary/monthly_by_item` | 월별 제품별 생산량 |
-| POST | `/chat/` | AI 채팅 |
+| 메서드 | 엔드포인트 | 설명 | Rate Limit |
+|--------|-----------|------|------------|
+| GET | `/` | API 상태 | 60/min |
+| GET | `/healthz` | 상세 헬스 체크 | 제외 |
+| GET | `/healthz/ai` | AI API 상태 | 제외 |
+| GET | `/records` | 레코드 목록 (lot_number, min/max_quantity 필터 추가) | 60/min |
+| GET | `/records/{item_code}` | 특정 제품 레코드 | 60/min |
+| GET | `/items` | 제품 목록 | 60/min |
+| GET | `/summary/monthly_total` | 월별 총 생산량 | 60/min |
+| GET | `/summary/by_item` | 기간별 제품별 생산량 | 60/min |
+| GET | `/summary/monthly_by_item` | 월별 제품별 생산량 | 60/min |
+| POST | `/chat/` | AI 채팅 (멀티턴, request_id 추가) | **20/min** |
+
+### v1.0.2 새로운 기능
+
+| 기능 | 설명 |
+|------|------|
+| Rate Limiting | IP 기반 요청 제한 (429 응답) |
+| 새 필터 | `lot_number`, `min_quantity`, `max_quantity` |
+| 입력 검증 | 날짜 범위, 문자열 길이 검증 |
+| Multi-turn Chat | `session_id`로 대화 맥락 유지 |
+| Request ID | 모든 채팅 응답에 추적용 ID 포함 |
 
 ---
 
-> **문서 버전:** 1.0
-> **최종 업데이트:** 2026-01-23
+> **문서 버전:** 1.1
+> **최종 업데이트:** 2026-02-20
 > **문의:** 시스템 관리자
