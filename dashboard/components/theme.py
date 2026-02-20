@@ -1,7 +1,8 @@
 """
 U1: Theme Manager - Dark mode support for dashboard.
 
-Provides CSS-based dark mode that can be toggled at runtime.
+Dark mode is configured via .streamlit/config.toml and Streamlit's settings menu.
+Users can switch themes via Menu > Settings > Theme.
 """
 
 import streamlit as st
@@ -48,8 +49,17 @@ def get_theme() -> ThemeMode:
     Returns:
         "dark" if dark mode is enabled, "light" otherwise.
     """
+    # Try to detect from Streamlit context
+    try:
+        if st.context.theme.base == "dark":
+            return "dark"
+    except AttributeError:
+        pass
+
+    # Check session_state
     if st.session_state.get("dark_mode", False):
         return "dark"
+
     return "light"
 
 
@@ -65,152 +75,36 @@ def get_colors() -> Dict[str, str]:
 
 def render_theme_toggle() -> bool:
     """
-    Render theme toggle in sidebar.
+    Render theme toggle info in sidebar.
 
-    Creates a toggle switch that allows users to switch between
-    light and dark modes.
+    Shows current theme status and instructions for changing theme.
+    Streamlit's theme is controlled via config.toml and browser settings.
 
     Returns:
         Current dark mode state (True = dark, False = light).
     """
-    dark_mode = st.sidebar.toggle(
-        "🌙 Dark Mode",
-        value=st.session_state.get("dark_mode", False),
-        key="dark_mode_toggle",
-        help="Switch between light and dark theme"
+    is_dark = get_theme() == "dark"
+
+    # Show current theme status
+    theme_name = "Dark" if is_dark else "Light"
+    st.sidebar.caption(f"Theme: {theme_name}")
+
+    # Note about changing theme
+    st.sidebar.caption(
+        "Change theme: Menu (☰) → Settings → Theme"
     )
 
-    # Update session state if changed
-    if dark_mode != st.session_state.get("dark_mode", False):
-        st.session_state.dark_mode = dark_mode
-        st.rerun()
-
-    return dark_mode
+    return is_dark
 
 
 def apply_dark_mode_css() -> None:
     """
-    Apply dark mode CSS overrides when dark mode is enabled.
+    Apply dark mode CSS if needed.
 
-    This function injects CSS to transform the light theme into dark theme.
+    Streamlit handles dark mode automatically via config.toml.
+    This function provides additional chart color adjustments.
     """
-    is_dark = get_theme() == "dark"
-
-    if is_dark:
-        st.markdown("""
-        <style>
-            /* Main background */
-            .stApp {
-                background-color: #0E1117 !important;
-            }
-
-            /* Sidebar */
-            section[data-testid="stSidebar"] {
-                background-color: #262730 !important;
-            }
-
-            /* Main content area */
-            .main .block-container {
-                background-color: #0E1117 !important;
-            }
-
-            /* Text colors */
-            .stMarkdown, .stText, p, span, label {
-                color: #FAFAFA !important;
-            }
-
-            /* Headers */
-            h1, h2, h3, h4, h5, h6 {
-                color: #FAFAFA !important;
-            }
-
-            /* Metric cards */
-            [data-testid="stMetric"] {
-                background-color: #262730 !important;
-                border-color: #3a3d4a !important;
-            }
-
-            [data-testid="stMetric"] label {
-                color: #a3a8b8 !important;
-            }
-
-            [data-testid="stMetric"] [data-testid="stMetricValue"] {
-                color: #FAFAFA !important;
-            }
-
-            /* Dataframes */
-            .stDataFrame {
-                background-color: #262730 !important;
-            }
-
-            .stDataFrame th {
-                background-color: #1a1c24 !important;
-                color: #FAFAFA !important;
-            }
-
-            .stDataFrame td {
-                background-color: #262730 !important;
-                color: #FAFAFA !important;
-            }
-
-            /* Tabs */
-            .stTabs [data-baseweb="tab-list"] {
-                background-color: #262730 !important;
-            }
-
-            .stTabs [data-baseweb="tab"] {
-                color: #a3a8b8 !important;
-            }
-
-            .stTabs [aria-selected="true"] {
-                color: #FAFAFA !important;
-                background-color: #0E1117 !important;
-            }
-
-            /* Input widgets */
-            .stSelectbox, .stMultiSelect, .stDateInput {
-                background-color: #262730 !important;
-            }
-
-            div[data-baseweb="select"] > div {
-                background-color: #262730 !important;
-                color: #FAFAFA !important;
-            }
-
-            /* Buttons */
-            .stButton button {
-                background-color: #262730 !important;
-                color: #FAFAFA !important;
-                border-color: #3a3d4a !important;
-            }
-
-            .stButton button:hover {
-                background-color: #3a3d4a !important;
-            }
-
-            /* Expander */
-            .streamlit-expanderHeader {
-                background-color: #262730 !important;
-                color: #FAFAFA !important;
-            }
-
-            /* Dividers */
-            hr {
-                border-color: #3a3d4a !important;
-            }
-
-            /* Alerts/Warnings */
-            .stAlert {
-                background-color: #262730 !important;
-                color: #FAFAFA !important;
-            }
-
-            /* Info boxes */
-            .element-container .stAlert[data-basename="info"] {
-                background-color: #1a2a3a !important;
-            }
-        </style>
-        """, unsafe_allow_html=True)
+    pass  # Streamlit handles this via config.toml
 
 
 def apply_custom_css() -> None:
