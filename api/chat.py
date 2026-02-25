@@ -94,6 +94,8 @@ from .tools import (
     get_production_summary,
     get_monthly_trend,
     get_top_items,
+    compare_periods,
+    get_item_history,
     execute_custom_query
 )
 
@@ -231,9 +233,11 @@ def _build_system_instruction() -> str:
 4. 제품 코드를 확인한 후에만 `get_production_summary`를 사용하여 수치를 조회해.
 5. 월별 추이나 기간별 흐름을 물어보면 `get_monthly_trend`를 사용해. 특정 제품의 추이가 궁금하면 item_code를 함께 넣어줘.
 6. "가장 많이 생산된", "상위 제품", "순위", "랭킹" 등을 물어보면 `get_top_items`를 사용해.
-7. 복잡한 조건(로트번호 패턴, 다중 필터 등)이 필요하면 `execute_custom_query`로 직접 SQL을 작성해. 사용 가능한 컬럼: production_date, item_code, item_name, good_quantity, lot_number
-8. 데이터가 없으면 추측하지 말고 "조회된 데이터가 없습니다"라고 정직하게 말해.
-9. 오늘 날짜는 {date_str}이야. '올해'는 {current_year}년, '작년'은 {last_year}년을 의미해.
+7. "이번 달 vs 저번 달", "올해 vs 작년", "전월 대비", "비교", "대비", "차이" 같은 표현이 있으면 `compare_periods`를 사용해.
+8. "최근 이력", "마지막 N건", "언제 만들었어", "최근 생산" 같은 표현이 있으면 `get_item_history`를 사용해.
+9. 복잡한 조건(로트번호 패턴, 다중 필터 등)이 필요하면 `execute_custom_query`로 직접 SQL을 작성해. 사용 가능한 컬럼: production_date, item_code, item_name, good_quantity, lot_number
+10. 데이터가 없으면 추측하지 말고 "조회된 데이터가 없습니다"라고 정직하게 말해.
+11. 오늘 날짜는 {date_str}이야. '올해'는 {current_year}년, '작년'은 {last_year}년을 의미해.
 
 [답변 스타일]
 - 친절하고 전문적인 어조를 사용해.
@@ -347,6 +351,8 @@ async def chat_with_data(request: ChatRequest, http_request: Request):
                         get_production_summary,
                         get_monthly_trend,
                         get_top_items,
+                        compare_periods,
+                        get_item_history,
                         execute_custom_query
                     ],
                 ),

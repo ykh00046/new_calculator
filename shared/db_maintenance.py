@@ -170,3 +170,52 @@ def check_and_heal_indexes(
         logger.error("Error checking %s: %s", db_path.name, e)
 
     return result
+
+
+# ==========================================================
+# ANALYZE (Query Planner Statistics)
+# ==========================================================
+def run_analyze(db_path: Path) -> dict:
+    """
+    Run ANALYZE on production_records to update query planner statistics.
+
+    Should be called once per day after DB stabilization.
+    Effect: SQLite picks better indexes for queries with combined filters.
+
+    Args:
+        db_path: Path to the SQLite database file.
+
+    Returns:
+        Dict with keys: db, success (bool), duration_ms (float), error (str|None).
+    """
+    result: dict = {
+        "db": db_path.name,
+        "success": False,
+        "duration_ms": 0.0,
+        "error": None,
+    }
+
+    if not db_path.exists():
+        result["error"] = "File not found"
+        return result
+
+    try:
+        start = time.perf_counter()
+        conn = sqlite3.connect(str(db_path), timeout=DB_TIMEOUT)
+        conn.execute("ANALYZE production_records")
+        conn.commit()
+        conn.close()
+
+        result["duration_ms"] = round((time.perf_counter() - start) * 1000, 1)
+        result["success"] = True
+        logger.info("ANALYZE completed: %s (%.1fms)", db_path.name, result["duration_ms"])
+
+    except sqlite3.Error as e:
+        result["error"] = str(e)
+        logger.error("ANALYZE failed on %s: %s", db_path.name, e)
+
+    except Exception as e:
+        result["error"] = str(e)
+        logger.error("ANALYZE error on %s: %s", db_path.name, e)
+
+    return result

@@ -337,6 +337,166 @@ def get_top_items(
         return {"status": "error", "message": str(e)}
 
 
+def compare_periods(
+    period1_from: str,
+    period1_to: str,
+    period2_from: str,
+    period2_to: str,
+    item_code: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Compare production statistics between two periods.
+    Use for questions like "이번 달 vs 저번 달", "올해 vs 작년", "1분기 vs 2분기", "전월 대비".
+
+    Args:
+        period1_from: Period 1 start date (YYYY-MM-DD), inclusive (주로 비교 기준이 되는 최신 기간)
+        period1_to: Period 1 end date (YYYY-MM-DD), inclusive
+        period2_from: Period 2 start date (YYYY-MM-DD), inclusive (주로 이전/기준 기간)
+        period2_to: Period 2 end date (YYYY-MM-DD), inclusive
+        item_code: Exact product code to filter. Use search_production_items first to find this.
+
+    Returns:
+        Dict with total_quantity, production_count, average for each period,
+        plus quantity_diff and change_rate_pct comparing period1 vs period2.
+    """
+    try:
+        p1_from, p1_next = _validate_date_range(period1_from, period1_to)
+        p2_from, p2_next = _validate_date_range(period2_from, period2_to)
+
+        def _query_stats(date_from: str, next_day: str) -> dict:
+            targets = DBRouter.pick_targets(date_from, next_day)
+            where_parts = ["production_date >= ?", "production_date < ?"]
+            params = [date_from, next_day]
+            if item_code:
+                where_parts.append("item_code = ?")
+                params.append(item_code)
+            where_clause = " AND ".join(where_parts)
+
+            sql, _ = DBRouter.build_aggregation_sql(
+                inner_select="SUM(good_quantity) AS total, COUNT(*) AS cnt, AVG(good_quantity) AS avg_val",
+                inner_where=where_clause,
+                outer_select="SUM(total) AS total, SUM(cnt) AS count, AVG(avg_val) AS average",
+                outer_group_by="",
+                targets=targets,
+            )
+            query_params = DBRouter.build_query_params(params, targets)
+            with DBRouter.get_connection(use_archive=targets.use_archive) as conn:
+                row = conn.execute(sql, query_params).fetchone()
+            return dict(row) if row else {"total": 0, "count": 0, "average": 0}
+
+        with QueryLogger("compare_periods", DBTargets(use_archive=True, use_live=True), logger) as ql:
+            ql.add_info("period1", f"{p1_from}~{period1_to}")
+            ql.add_info("period2", f"{p2_from}~{period2_to}")
+            if item_code:
+                ql.add_info("item_code", item_code)
+
+            r1 = _query_stats(p1_from, p1_next)
+            r2 = _query_stats(p2_from, p2_next)
+            ql.set_row_count(2)
+
+        t1 = r1.get("total") or 0
+        t2 = r2.get("total") or 0
+        diff = t1 - t2
+        change_rate = round(diff / t2 * 100, 1) if t2 else None
+
+        result = {
+            "status": "success",
+            "item_code": item_code or "all",
+            "period1": {
+                "range": f"{period1_from} ~ {period1_to}",
+                "total_quantity": t1,
+                "production_count": r1.get("count") or 0,
+                "average_quantity": round(r1.get("average") or 0, 2),
+            },
+            "period2": {
+                "range": f"{period2_from} ~ {period2_to}",
+                "total_quantity": t2,
+                "production_count": r2.get("count") or 0,
+                "average_quantity": round(r2.get("average") or 0, 2),
+            },
+            "comparison": {
+                "quantity_diff": diff,
+                "change_rate_pct": change_rate,
+                "direction": "증가" if diff > 0 else ("감소" if diff < 0 else "동일"),
+            },
+        }
+
+        logger.info(
+            f"[Tool] compare_periods: p1={p1_from}~{period1_to} p2={p2_from}~{period2_to} "
+            f"item={item_code or 'all'} t1={t1} t2={t2} diff={diff}"
+        )
+        return result
+
+    except Exception as e:
+        logger.exception(f"[Tool Error] compare_periods failed: {str(e)}")
+        return {"status": "error", "message": str(e)}
+
+
+def get_item_history(
+    item_code: str,
+    limit: int = 10
+) -> Dict[str, Any]:
+    """
+    Get the most recent production records for a specific item.
+    Use for questions like "BW0021 최근 생산 이력", "XXX 마지막 10건", "최근에 언제 만들었어".
+
+    Args:
+        item_code: Exact product code (e.g., 'BW0021'). Use search_production_items first to find this.
+        limit: Number of records to return (default: 10, max: 50)
+
+    Returns:
+        Dict with list of records sorted by date (newest first),
+        each containing production_date, lot_number, good_quantity, source.
+    """
+    try:
+        limit = max(1, min(limit, 50))
+
+        # Always include archive to allow full history retrieval
+        targets = DBTargets(use_archive=ARCHIVE_DB_FILE.exists(), use_live=True)
+
+        where_clause = "item_code = ?"
+        params = [item_code]
+
+        with QueryLogger("item_history", targets, logger) as ql:
+            ql.add_info("item_code", item_code)
+            ql.add_info("limit", limit)
+
+            sql, _ = DBRouter.build_union_sql(
+                select_columns="production_date, lot_number, good_quantity",
+                where_clause=where_clause,
+                targets=targets,
+                order_by="production_date DESC, source DESC",
+                limit=limit,
+            )
+
+            query_params = DBRouter.build_query_params(params, targets)
+
+            with DBRouter.get_connection(use_archive=targets.use_archive) as conn:
+                rows = conn.execute(sql, query_params).fetchall()
+                records = [dict(r) for r in rows]
+
+            ql.set_row_count(len(records))
+
+        result = {
+            "status": "success",
+            "item_code": item_code,
+            "record_count": len(records),
+            "records": records,
+            "message": (
+                f"'{item_code}' 최근 생산 이력 {len(records)}건 조회 완료"
+                if records else
+                f"'{item_code}'의 생산 이력이 없습니다."
+            ),
+        }
+
+        logger.info(f"[Tool] get_item_history: item_code={item_code} limit={limit} found={len(records)}")
+        return result
+
+    except Exception as e:
+        logger.exception(f"[Tool Error] get_item_history failed: item_code={item_code}")
+        return {"status": "error", "message": str(e)}
+
+
 def _strip_sql_comments(sql: str) -> str:
     """Remove SQL comments (block and line) to prevent validation bypass."""
     sql = re.sub(r'/\*.*?\*/', ' ', sql, flags=re.DOTALL)  # block comments
@@ -495,5 +655,7 @@ PRODUCTION_TOOLS = [
     get_production_summary,
     get_monthly_trend,
     get_top_items,
+    compare_periods,
+    get_item_history,
     execute_custom_query
 ]

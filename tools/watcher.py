@@ -36,10 +36,12 @@ from pathlib import Path
 # Add parent directory for shared imports
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from shared import DB_FILE, ARCHIVE_DB_FILE, DATABASE_DIR, DB_TIMEOUT, LOGS_DIR
+from shared import DB_FILE, ARCHIVE_DB_FILE, DATABASE_DIR, DB_TIMEOUT
+from shared.config import LOGS_DIR
 from shared.db_maintenance import (
     wait_for_stabilization,
     check_and_heal_indexes,
+    run_analyze,
     get_file_state,
     REQUIRED_INDEXES,
 )
@@ -50,6 +52,7 @@ from shared.db_maintenance import (
 # ==========================================================
 STATE_FILE = DATABASE_DIR / ".watcher_state.json"
 DEFAULT_INTERVAL = 3600  # 1 hour
+ANALYZE_INTERVAL = 86400  # 24 hours
 
 
 # ==========================================================
@@ -84,7 +87,7 @@ def load_state() -> dict:
                 return json.load(f)
         except Exception:
             pass
-    return {"live_mtime": 0, "live_size": 0, "archive_mtime": 0, "archive_size": 0}
+    return {"live_mtime": 0, "live_size": 0, "archive_mtime": 0, "archive_size": 0, "last_analyze_ts": 0}
 
 
 def save_state(state: dict):
@@ -127,7 +130,8 @@ def run_check() -> dict:
     summary = {
         "timestamp": datetime.now().isoformat(),
         "live": {"changed": False, "result": None},
-        "archive": {"changed": False, "result": None}
+        "archive": {"changed": False, "result": None},
+        "analyze": {"ran": False, "results": []},
     }
 
     # Check Live DB
@@ -158,7 +162,7 @@ def run_check() -> dict:
             summary["archive"]["changed"] = True
 
             if wait_for_stabilization(ARCHIVE_DB_FILE):
-                summary["archive"]["result"] = check_and_heal_indexes(ARCHIVE_DB_FILE, is_archive=True)
+                summary["archive"]["result"] = check_and_heal_indexes(ARCHIVE_DB_FILE)
                 archive_mtime, archive_size = get_file_state(ARCHIVE_DB_FILE)
             else:
                 log("WARN", "Archive DB not stable, skipping index check")
@@ -167,12 +171,34 @@ def run_check() -> dict:
     else:
         log("INFO", "Archive DB not found (may not exist yet)")
 
+    # ANALYZE: run once per day
+    last_analyze_ts = state.get("last_analyze_ts", 0)
+    now = time.time()
+    if now - last_analyze_ts >= ANALYZE_INTERVAL:
+        log("INFO", f"Running ANALYZE (last run: {int((now - last_analyze_ts) / 3600)}h ago)")
+        analyze_results = []
+        for db_path in [DB_FILE, ARCHIVE_DB_FILE]:
+            if db_path.exists():
+                result = run_analyze(db_path)
+                analyze_results.append(result)
+                if result["success"]:
+                    log("INFO", f"ANALYZE OK: {result['db']} ({result['duration_ms']}ms)")
+                else:
+                    log("WARN", f"ANALYZE failed: {result['db']} - {result['error']}")
+        summary["analyze"]["ran"] = True
+        summary["analyze"]["results"] = analyze_results
+        last_analyze_ts = now
+    else:
+        remaining_h = int((ANALYZE_INTERVAL - (now - last_analyze_ts)) / 3600)
+        log("INFO", f"ANALYZE skipped (next in ~{remaining_h}h)")
+
     # Save updated state
     save_state({
         "live_mtime": live_mtime,
         "live_size": live_size,
         "archive_mtime": archive_mtime,
-        "archive_size": archive_size
+        "archive_size": archive_size,
+        "last_analyze_ts": last_analyze_ts,
     })
 
     log("INFO", "=" * 50)
