@@ -31,15 +31,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from shared import DB_FILE, ARCHIVE_DB_FILE, DATABASE_DIR, DB_TIMEOUT
+from shared.db_maintenance import wait_for_stabilization
 
 
 # ==========================================================
 # Configuration
 # ==========================================================
 BACKUP_DIR = DATABASE_DIR / "backups"
-STABILIZATION_WAIT = 10  # seconds - wait for mtime to stabilize
-STABILIZATION_CHECKS = 3  # number of checks
-STABILIZATION_INTERVAL = 3  # seconds between checks
 
 # Retention policy
 LIVE_BACKUP_RETENTION = 30  # Keep last 30 daily backups
@@ -52,44 +50,6 @@ ARCHIVE_BACKUP_RETENTION = 12  # Keep last 12 weekly backups
 def log(level: str, msg: str):
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{timestamp}] [{level}] {msg}")
-
-
-# ==========================================================
-# Core Functions
-# ==========================================================
-def wait_for_stabilization(db_path: Path) -> bool:
-    """
-    Wait until the DB file's mtime stops changing.
-    Returns True if stabilized, False if timeout or file doesn't exist.
-    """
-    if not db_path.exists():
-        log("ERROR", f"DB file not found: {db_path}")
-        return False
-
-    log("INFO", f"Checking stabilization for {db_path.name}...")
-
-    last_mtime = os.path.getmtime(db_path)
-    last_size = os.path.getsize(db_path)
-
-    for check in range(STABILIZATION_CHECKS):
-        time.sleep(STABILIZATION_INTERVAL)
-
-        if not db_path.exists():
-            log("ERROR", f"DB file disappeared during stabilization check")
-            return False
-
-        current_mtime = os.path.getmtime(db_path)
-        current_size = os.path.getsize(db_path)
-
-        if current_mtime != last_mtime or current_size != last_size:
-            log("WARN", f"DB still changing (check {check+1}/{STABILIZATION_CHECKS}). Waiting...")
-            last_mtime = current_mtime
-            last_size = current_size
-            # Reset the counter - we need consecutive stable checks
-            return wait_for_stabilization(db_path)  # Recursive retry
-
-    log("INFO", f"DB stabilized: mtime={last_mtime}, size={last_size}")
-    return True
 
 
 def backup_database(source_path: Path, backup_path: Path) -> bool:

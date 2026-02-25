@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime as dt
 import os
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,11 @@ from shared import (
     get_cache_stats,
     api_rate_limiter,
 )
+from shared.validators import (
+    validate_date_range as _validate_date_range_pure,
+    validate_length as _validate_length_pure,
+    escape_like_wildcards,
+)
 from shared.logging_config import QueryLogger, set_request_id
 from shared.rate_limiter import RateLimiter
 
@@ -34,13 +40,14 @@ from . import chat  # Import chat module
 
 
 # ==========================================================
-# AI Health Check Cache (Section 6.4)
+# AI Health Check Cache (Section 6.4) - Thread-safe
 # ==========================================================
 _ai_health_cache = {
     "status": "unknown",
     "last_check": 0,
     "message": "Not checked yet"
 }
+_ai_health_cache_lock = threading.Lock()
 AI_HEALTH_CACHE_TTL = 600  # 10 minutes
 
 # ==========================================================
@@ -63,16 +70,15 @@ app.include_router(chat.router)
 # ==========================================================
 # Middleware for Request ID and Rate Limiting
 # ==========================================================
-# 요청 카운터 for 주기적 cleanup
+# 요청 카운터 for 주기적 cleanup (thread-safe)
 _request_counter = 0
+_request_counter_lock = threading.Lock()
 _CLEANUP_INTERVAL = 100
 
 
 @app.middleware("http")
 async def add_request_id_and_rate_limit(request, call_next):
     """Add request ID and apply rate limiting to API endpoints."""
-    global _request_counter
-
     request_id = set_request_id()
 
     # Skip rate limiting for health checks
@@ -113,10 +119,15 @@ async def add_request_id_and_rate_limit(request, call_next):
     response.headers["X-RateLimit-Limit"] = "60"
     response.headers["X-RateLimit-Remaining"] = str(api_rate_limiter.remaining(client_ip))
 
-    # Periodic cleanup
-    _request_counter += 1
-    if _request_counter >= _CLEANUP_INTERVAL:
-        _request_counter = 0
+    # Periodic cleanup (thread-safe counter)
+    should_cleanup = False
+    with _request_counter_lock:
+        _request_counter += 1
+        if _request_counter >= _CLEANUP_INTERVAL:
+            _request_counter = 0
+            should_cleanup = True
+
+    if should_cleanup:
         removed = api_rate_limiter.cleanup()
         if removed > 0:
             logger.debug(f"[Rate Limiter Cleanup] Removed {removed} expired IPs")
@@ -150,58 +161,21 @@ def _normalize_date(date_str: str | None, add_days: int = 0) -> str | None:
 
 
 def _validate_date_range(date_from: str | None, date_to: str | None) -> None:
-    """
-    Validate that date_from <= date_to.
-
-    Args:
-        date_from: Start date string (YYYY-MM-DD format, already normalized)
-        date_to: End date string (YYYY-MM-DD format, already normalized)
-
-    Raises:
-        HTTPException: If date_from > date_to
-    """
+    """Validate date_from <= date_to. Wraps shared validator with HTTPException."""
     if not date_from or not date_to:
         return
-
     try:
-        from_date = dt.date.fromisoformat(date_from)
-        to_date = dt.date.fromisoformat(date_to)
-
-        if from_date > to_date:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid date range: date_from ({date_from}) cannot be after date_to ({date_to})."
-            )
-    except ValueError:
-        # Already handled by _normalize_date, but just in case
-        pass
+        _validate_date_range_pure(date_from, date_to)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 def _validate_length(value: str | None, max_length: int, field_name: str) -> str | None:
-    """
-    Validate string length constraint.
-
-    Args:
-        value: String value to validate
-        max_length: Maximum allowed length
-        field_name: Field name for error message
-
-    Returns:
-        Original value if valid
-
-    Raises:
-        HTTPException: If value exceeds max_length
-    """
-    if value is None:
-        return None
-
-    if len(value) > max_length:
-        raise HTTPException(
-            status_code=400,
-            detail=f"{field_name} exceeds maximum length of {max_length} characters (got {len(value)})."
-        )
-
-    return value
+    """Validate string length. Wraps shared validator with HTTPException."""
+    try:
+        return _validate_length_pure(value, max_length, field_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # ==========================================================
@@ -300,27 +274,27 @@ async def ai_health_check():
     AI API health check with actual ping (cached for 10 minutes).
     Use this sparingly to avoid quota consumption.
     """
-    global _ai_health_cache
-
-    # Check cache validity
-    cache_age = time.time() - _ai_health_cache["last_check"]
-    if cache_age < AI_HEALTH_CACHE_TTL and _ai_health_cache["status"] != "unknown":
-        return {
-            "status": _ai_health_cache["status"],
-            "message": _ai_health_cache["message"],
-            "cached": True,
-            "cache_age_sec": int(cache_age),
-            "cache_ttl_sec": AI_HEALTH_CACHE_TTL
-        }
+    # Check cache validity (thread-safe read)
+    with _ai_health_cache_lock:
+        cache_age = time.time() - _ai_health_cache["last_check"]
+        if cache_age < AI_HEALTH_CACHE_TTL and _ai_health_cache["status"] != "unknown":
+            return {
+                "status": _ai_health_cache["status"],
+                "message": _ai_health_cache["message"],
+                "cached": True,
+                "cache_age_sec": int(cache_age),
+                "cache_ttl_sec": AI_HEALTH_CACHE_TTL
+            }
 
     # Perform actual check
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
-        _ai_health_cache = {
-            "status": "error",
-            "last_check": time.time(),
-            "message": "API key not configured"
-        }
+        with _ai_health_cache_lock:
+            _ai_health_cache.update({
+                "status": "error",
+                "last_check": time.time(),
+                "message": "API key not configured"
+            })
         return {
             "status": "error",
             "message": "GEMINI_API_KEY not configured",
@@ -337,11 +311,12 @@ async def ai_health_check():
         models = client.models.list()
         model_count = sum(1 for _ in models)
 
-        _ai_health_cache = {
-            "status": "ok",
-            "last_check": time.time(),
-            "message": f"Connected, {model_count} models available"
-        }
+        with _ai_health_cache_lock:
+            _ai_health_cache.update({
+                "status": "ok",
+                "last_check": time.time(),
+                "message": f"Connected, {model_count} models available"
+            })
 
         return {
             "status": "ok",
@@ -351,27 +326,31 @@ async def ai_health_check():
 
     except ClientError as e:
         error_msg = f"Client error: {e}"
+        status = "error"
         if "429" in str(e):
             error_msg = "Rate limited (quota may be exhausted)"
-            _ai_health_cache["status"] = "rate_limited"
-        else:
-            _ai_health_cache["status"] = "error"
+            status = "rate_limited"
 
-        _ai_health_cache["last_check"] = time.time()
-        _ai_health_cache["message"] = error_msg
+        with _ai_health_cache_lock:
+            _ai_health_cache.update({
+                "status": status,
+                "last_check": time.time(),
+                "message": error_msg
+            })
 
         return {
-            "status": _ai_health_cache["status"],
+            "status": status,
             "message": error_msg,
             "cached": False
         }
 
     except ServerError as e:
-        _ai_health_cache = {
-            "status": "degraded",
-            "last_check": time.time(),
-            "message": f"Server error: {e}"
-        }
+        with _ai_health_cache_lock:
+            _ai_health_cache.update({
+                "status": "degraded",
+                "last_check": time.time(),
+                "message": f"Server error: {e}"
+            })
         return {
             "status": "degraded",
             "message": str(e),
@@ -379,11 +358,12 @@ async def ai_health_check():
         }
 
     except Exception as e:
-        _ai_health_cache = {
-            "status": "error",
-            "last_check": time.time(),
-            "message": str(e)
-        }
+        with _ai_health_cache_lock:
+            _ai_health_cache.update({
+                "status": "error",
+                "last_check": time.time(),
+                "message": str(e)
+            })
         return {
             "status": "error",
             "message": str(e),
@@ -432,7 +412,7 @@ def get_records(
         params.append(item_code)
 
     if q:
-        like = f"%{q}%"
+        like = f"%{escape_like_wildcards(q)}%"
         where.append("(item_code LIKE ? OR item_name LIKE ? OR lot_number LIKE ?)")
         params.extend([like, like, like])
 
@@ -566,7 +546,7 @@ def _list_items_cached(q: str | None, limit: int) -> list[dict]:
     params: list[Any] = []
 
     if q:
-        like = f"%{q}%"
+        like = f"%{escape_like_wildcards(q)}%"
         where = "WHERE item_code LIKE ? OR item_name LIKE ?"
         params.extend([like, like])
 

@@ -1,7 +1,6 @@
 import io
 import os
 import re
-import sqlite3
 import sys
 import requests
 from pathlib import Path
@@ -18,10 +17,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from shared import (
     DB_FILE,
     ARCHIVE_DB_FILE,
-    ARCHIVE_CUTOFF_DATE,
-    ARCHIVE_CUTOFF_YEAR,
     DBRouter,
 )
+from shared.validators import escape_like_wildcards
 
 # Import UI enhancement components
 from components import (
@@ -170,7 +168,7 @@ def load_records(item_codes, keyword, date_from, date_to, limit, db_ver):
         where.append(f"item_code IN ({','.join(['?']*len(item_codes))})")
         params.extend(item_codes)
     if keyword:
-        like = f"%{keyword}%"
+        like = f"%{escape_like_wildcards(keyword)}%"
         where.append("(item_code LIKE ? OR item_name LIKE ? OR lot_number LIKE ?)")
         params.extend([like, like, like])
     if date_from:
@@ -181,35 +179,22 @@ def load_records(item_codes, keyword, date_from, date_to, limit, db_ver):
         where.append("production_date < ?")
         params.append(_iso(next_day))
 
-    # Use DBRouter.pick_targets for consistent archive/live routing
+    # Use DBRouter for consistent archive/live routing
     date_from_str = _iso(date_from) if date_from else None
     date_to_str = _iso(date_to + timedelta(days=1)) if date_to else None  # exclusive
     targets = DBRouter.pick_targets(date_from_str, date_to_str)
 
     where_clause = " AND ".join(where) if where else "1=1"
 
-    # Build SQL with parameterized cutoff date (avoid f-string injection)
-    # Include 'source' column for stable sorting (matches api/main.py: production_date DESC, source DESC, id DESC)
-    if targets.use_archive and targets.use_live and ARCHIVE_DB_FILE.exists():
-        # UNION: archive + live (with source column for sorting)
-        archive_sql = f"SELECT 'archive' AS source, {columns} FROM archive.production_records WHERE {where_clause} AND production_date < ?"
-        live_sql = f"SELECT 'live' AS source, {columns} FROM production_records WHERE {where_clause} AND production_date >= ?"
-        final_sql = f"{archive_sql} UNION ALL {live_sql}"
-        query_params = list(params) + [ARCHIVE_CUTOFF_DATE] + list(params) + [ARCHIVE_CUTOFF_DATE]
-        sort_order = "ORDER BY production_date DESC, source DESC, id DESC"
-    elif targets.use_archive and ARCHIVE_DB_FILE.exists():
-        # Archive only
-        final_sql = f"SELECT 'archive' AS source, {columns} FROM archive.production_records WHERE {where_clause} AND production_date < ?"
-        query_params = list(params) + [ARCHIVE_CUTOFF_DATE]
-        sort_order = "ORDER BY production_date DESC, id DESC"
-    else:
-        # Live only (default)
-        final_sql = f"SELECT 'live' AS source, {columns} FROM production_records WHERE {where_clause} AND production_date >= ?"
-        query_params = list(params) + [ARCHIVE_CUTOFF_DATE]
-        sort_order = "ORDER BY production_date DESC, id DESC"
-
-    final_sql += f" {sort_order} LIMIT ?"
-    query_params.append(int(limit))
+    final_sql, params_doubled = DBRouter.build_union_sql(
+        select_columns=columns,
+        where_clause=where_clause,
+        targets=targets,
+        order_by="production_date DESC, source DESC, id DESC",
+        limit=int(limit),
+        include_source=True,
+    )
+    query_params = DBRouter.build_query_params(params, targets)
 
     with DBRouter.get_connection(use_archive=targets.use_archive) as conn:
         df = pd.read_sql(final_sql, conn, params=query_params)
@@ -233,7 +218,7 @@ def load_monthly_summary(date_from, date_to, db_ver):
         where.append("production_date < ?")
         params.append(_iso(next_day))
 
-    # Use DBRouter.pick_targets for consistent archive/live routing
+    # Use DBRouter for consistent archive/live routing
     date_from_str = _iso(date_from) if date_from else None
     date_to_str = _iso(date_to + timedelta(days=1)) if date_to else None  # exclusive
     targets = DBRouter.pick_targets(date_from_str, date_to_str)
@@ -241,25 +226,18 @@ def load_monthly_summary(date_from, date_to, db_ver):
     where_clause = " AND ".join(where) if where else "1=1"
     select_cols = "substr(production_date, 1, 7) AS year_month, good_quantity"
 
-    # Build SQL with parameterized cutoff date (avoid f-string injection)
-    if targets.use_archive and targets.use_live and ARCHIVE_DB_FILE.exists():
-        # UNION: archive + live
-        archive_sql = f"SELECT {select_cols} FROM archive.production_records WHERE {where_clause} AND production_date < ?"
-        live_sql = f"SELECT {select_cols} FROM production_records WHERE {where_clause} AND production_date >= ?"
-        final_sql = f"{archive_sql} UNION ALL {live_sql}"
-        query_params = list(params) + [ARCHIVE_CUTOFF_DATE] + list(params) + [ARCHIVE_CUTOFF_DATE]
-    elif targets.use_archive and ARCHIVE_DB_FILE.exists():
-        # Archive only
-        final_sql = f"SELECT {select_cols} FROM archive.production_records WHERE {where_clause} AND production_date < ?"
-        query_params = list(params) + [ARCHIVE_CUTOFF_DATE]
-    else:
-        # Live only (default)
-        final_sql = f"SELECT {select_cols} FROM production_records WHERE {where_clause} AND production_date >= ?"
-        query_params = list(params) + [ARCHIVE_CUTOFF_DATE]
+    inner_sql, _ = DBRouter.build_union_sql(
+        select_columns=select_cols,
+        where_clause=where_clause,
+        targets=targets,
+        order_by="",
+        include_source=False,
+    )
+    query_params = DBRouter.build_query_params(params, targets)
 
     wrapper_sql = f"""
     SELECT year_month, SUM(good_quantity) AS total_production, COUNT(*) AS batch_count, AVG(good_quantity) AS avg_batch_size
-    FROM ({final_sql})
+    FROM ({inner_sql})
     GROUP BY year_month ORDER BY year_month
     """
 
@@ -287,21 +265,18 @@ def load_daily_summary(date_from, date_to, db_ver):
     where_clause = " AND ".join(where) if where else "1=1"
     select_cols = "substr(production_date, 1, 10) AS production_day, good_quantity"
 
-    if targets.use_archive and targets.use_live and ARCHIVE_DB_FILE.exists():
-        archive_sql = f"SELECT {select_cols} FROM archive.production_records WHERE {where_clause} AND production_date < ?"
-        live_sql = f"SELECT {select_cols} FROM production_records WHERE {where_clause} AND production_date >= ?"
-        final_sql = f"{archive_sql} UNION ALL {live_sql}"
-        query_params = list(params) + [ARCHIVE_CUTOFF_DATE] + list(params) + [ARCHIVE_CUTOFF_DATE]
-    elif targets.use_archive and ARCHIVE_DB_FILE.exists():
-        final_sql = f"SELECT {select_cols} FROM archive.production_records WHERE {where_clause} AND production_date < ?"
-        query_params = list(params) + [ARCHIVE_CUTOFF_DATE]
-    else:
-        final_sql = f"SELECT {select_cols} FROM production_records WHERE {where_clause} AND production_date >= ?"
-        query_params = list(params) + [ARCHIVE_CUTOFF_DATE]
+    inner_sql, _ = DBRouter.build_union_sql(
+        select_columns=select_cols,
+        where_clause=where_clause,
+        targets=targets,
+        order_by="",
+        include_source=False,
+    )
+    query_params = DBRouter.build_query_params(params, targets)
 
     wrapper_sql = f"""
     SELECT production_day, SUM(good_quantity) AS total_production, COUNT(*) AS batch_count
-    FROM ({final_sql})
+    FROM ({inner_sql})
     GROUP BY production_day ORDER BY production_day
     """
 
@@ -330,21 +305,18 @@ def load_weekly_summary(date_from, date_to, db_ver):
     # Use strftime for week-based grouping
     select_cols = "substr(production_date, 1, 4) || '-W' || printf('%02d', (strftime('%j', production_date) - 1) / 7 + 1) AS year_week, good_quantity"
 
-    if targets.use_archive and targets.use_live and ARCHIVE_DB_FILE.exists():
-        archive_sql = f"SELECT {select_cols} FROM archive.production_records WHERE {where_clause} AND production_date < ?"
-        live_sql = f"SELECT {select_cols} FROM production_records WHERE {where_clause} AND production_date >= ?"
-        final_sql = f"{archive_sql} UNION ALL {live_sql}"
-        query_params = list(params) + [ARCHIVE_CUTOFF_DATE] + list(params) + [ARCHIVE_CUTOFF_DATE]
-    elif targets.use_archive and ARCHIVE_DB_FILE.exists():
-        final_sql = f"SELECT {select_cols} FROM archive.production_records WHERE {where_clause} AND production_date < ?"
-        query_params = list(params) + [ARCHIVE_CUTOFF_DATE]
-    else:
-        final_sql = f"SELECT {select_cols} FROM production_records WHERE {where_clause} AND production_date >= ?"
-        query_params = list(params) + [ARCHIVE_CUTOFF_DATE]
+    inner_sql, _ = DBRouter.build_union_sql(
+        select_columns=select_cols,
+        where_clause=where_clause,
+        targets=targets,
+        order_by="",
+        include_source=False,
+    )
+    query_params = DBRouter.build_query_params(params, targets)
 
     wrapper_sql = f"""
     SELECT year_week, SUM(good_quantity) AS total_production, COUNT(*) AS batch_count
-    FROM ({final_sql})
+    FROM ({inner_sql})
     GROUP BY year_week ORDER BY year_week
     """
 

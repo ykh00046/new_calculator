@@ -1,7 +1,7 @@
 {
-  "sessionCount": 7,
+  "sessionCount": 12,
   "lastSession": {
-    "startedAt": "2026-02-20T12:00:00.000Z",
+    "startedAt": "2026-02-25T01:00:50.374Z",
     "platform": "claude",
     "level": "Dynamic"
   },
@@ -30,6 +30,20 @@
       "pdcaPhase": "completed",
       "matchRate": 99,
       "completedAt": "2026-02-20"
+    },
+    {
+      "name": "streamlit-optimization",
+      "pdcaPhase": "archived",
+      "matchRate": 90,
+      "completedAt": "2026-02-25",
+      "archivedTo": "docs/archive/2026-02/streamlit-optimization/"
+    },
+    {
+      "name": "code-quality-improvement",
+      "pdcaPhase": "archived",
+      "matchRate": 88,
+      "completedAt": "2026-02-25",
+      "archivedTo": "docs/archive/2026-02/code-quality-improvement/"
     }
   ],
   "hotfixes": [

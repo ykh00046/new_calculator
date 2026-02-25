@@ -10,10 +10,16 @@ Key Design (Section 6.1, 6.2):
 - pick_targets() returns explicit DBTargets(use_archive, use_live)
 - UNION queries include 'source' column for debugging and cursor pagination
 - Cutoff date passed as parameter where possible
+
+v8 Performance Optimizations:
+- WAL mode for better concurrency
+- Optimized PRAGMA settings
+- Connection pooling with smart caching
 """
 
 from __future__ import annotations
 
+import atexit
 import os
 import sqlite3
 import logging
@@ -27,13 +33,113 @@ from .config import (
     ARCHIVE_CUTOFF_DATE,
     DB_TIMEOUT,
 )
+from .validators import validate_db_path
 
 logger = logging.getLogger(__name__)
+
+# ==========================================================
+# v8: SQLite PRAGMA Optimization
+# ==========================================================
+def _apply_pragma_settings(conn: sqlite3.Connection) -> None:
+    """
+    Apply optimized SQLite PRAGMA settings.
+
+    WAL mode benefits:
+    - Readers don't block writers
+    - Writers don't block readers
+    - Better crash recovery
+    """
+    try:
+        # Enable WAL mode for better concurrency
+        result = conn.execute("PRAGMA journal_mode=WAL").fetchone()
+        if result and result[0].upper() == "WAL":
+            logger.debug("WAL mode enabled")
+
+        # Larger cache size (negative = KB)
+        conn.execute("PRAGMA cache_size=-64000")  # 64MB
+
+        # Memory-mapped I/O for read performance
+        conn.execute("PRAGMA mmap_size=268435456")  # 256MB
+
+        # Busy timeout for write conflicts
+        conn.execute(f"PRAGMA busy_timeout={DB_TIMEOUT * 1000}")
+
+        # Synchronous mode (NORMAL is safe with WAL)
+        conn.execute("PRAGMA synchronous=NORMAL")
+
+        # Temp store in memory
+        conn.execute("PRAGMA temp_store=MEMORY")
+
+    except sqlite3.Error as e:
+        logger.warning(f"Failed to apply some PRAGMA settings: {e}")
+
 
 # ==========================================================
 # v7: Thread-local Connection Cache with mtime invalidation
 # ==========================================================
 _local = threading.local()
+_all_connections: list[sqlite3.Connection] = []
+_connection_lock = threading.Lock()
+_wal_enabled_dbs: set[str] = set()  # Track which DBs have WAL enabled
+
+
+def _cleanup_all_connections() -> None:
+    """Cleanup all cached connections on program exit."""
+    with _connection_lock:
+        for conn in _all_connections:
+            try:
+                conn.close()
+            except Exception:
+                pass
+        _all_connections.clear()
+    logger.debug("All database connections cleaned up")
+
+
+# Register cleanup on exit
+atexit.register(_cleanup_all_connections)
+
+
+# ==========================================================
+# v8: PRAGMA Optimization & WAL Mode
+# ==========================================================
+_wal_enabled_dbs: set[str] = set()  # Track which DBs have WAL enabled
+_wal_lock = threading.Lock()
+
+
+def _apply_pragma_settings(conn: sqlite3.Connection) -> None:
+    """
+    Apply optimized SQLite PRAGMA settings.
+
+    v8 Enhancement:
+    - WAL mode for better concurrency
+    - Larger cache for performance
+    - Memory-mapped I/O for reads
+    """
+    try:
+        # Enable WAL mode for better concurrency
+        result = conn.execute("PRAGMA journal_mode=WAL").fetchone()
+        if result and result[0] == "wal":
+            with _wal_lock:
+                _wal_enabled_dbs.add(str(id(conn)))
+
+        # Larger cache size (negative = KB, positive = pages)
+        conn.execute("PRAGMA cache_size=-64000")  # 64MB
+
+        # Memory-mapped I/O for read performance
+        conn.execute("PRAGMA mmap_size=268435456")  # 256MB
+
+        # Busy timeout for write conflicts
+        conn.execute(f"PRAGMA busy_timeout={DB_TIMEOUT * 1000}")
+
+        # Synchronous mode (NORMAL is safe with WAL)
+        conn.execute("PRAGMA synchronous=NORMAL")
+
+        # Temp store in memory
+        conn.execute("PRAGMA temp_store=MEMORY")
+
+        logger.debug("SQLite PRAGMA settings applied (WAL, 64MB cache, 256MB mmap)")
+    except Exception as e:
+        logger.warning(f"Failed to apply PRAGMA settings: {e}")
 
 
 def _get_db_mtime() -> tuple[float, float]:
@@ -181,15 +287,29 @@ class DBRouter:
         conn = sqlite3.connect(db_uri, uri=True, timeout=DB_TIMEOUT)
         conn.row_factory = sqlite3.Row
 
+        # v8: Apply PRAGMA optimizations
+        _apply_pragma_settings(conn)
+
         if use_archive and ARCHIVE_DB_FILE.exists():
-            # Escape single quotes in path for SQL safety
-            archive_path = str(ARCHIVE_DB_FILE.absolute()).replace("'", "''")
-            conn.execute(f"ATTACH DATABASE '{archive_path}' AS archive")
+            # Validate and escape path for SQL safety
+            archive_path = str(ARCHIVE_DB_FILE.absolute())
+            try:
+                validate_db_path(archive_path)
+            except ValueError as e:
+                logger.error(f"Invalid archive database path: {e}")
+                raise
+            # Escape single quotes for SQL string literal
+            archive_path_escaped = archive_path.replace("'", "''")
+            conn.execute(f"ATTACH DATABASE '{archive_path_escaped}' AS archive")
             logger.debug(f"Archive DB attached: {ARCHIVE_DB_FILE}")
 
         # Cache the connection
         setattr(_local, cache_key, conn)
         setattr(_local, mtime_key, current_mtime)
+
+        # Track for cleanup
+        with _connection_lock:
+            _all_connections.append(conn)
 
         return conn
 

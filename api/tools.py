@@ -26,6 +26,7 @@ from shared import (
     get_logger,
 )
 from shared.logging_config import QueryLogger
+from shared.validators import validate_date_range_exclusive, validate_db_path, escape_like_wildcards
 
 logger = get_logger(__name__)
 
@@ -34,34 +35,8 @@ logger = get_logger(__name__)
 # Helpers
 # ==========================================================
 def _validate_date_range(date_from: str, date_to: str) -> tuple[str, str]:
-    """
-    Validate date_from and date_to parameters.
-
-    Args:
-        date_from: Start date (YYYY-MM-DD)
-        date_to: End date (YYYY-MM-DD)
-
-    Returns:
-        Tuple of (date_from, next_day) where next_day is date_to + 1 day (exclusive)
-
-    Raises:
-        ValueError: If date format is invalid or date_from > date_to
-    """
-    try:
-        from_dt = datetime.strptime(date_from, "%Y-%m-%d")
-    except ValueError:
-        raise ValueError(f"Invalid date_from format: '{date_from}'. Expected YYYY-MM-DD.")
-
-    try:
-        to_dt = datetime.strptime(date_to, "%Y-%m-%d")
-    except ValueError:
-        raise ValueError(f"Invalid date_to format: '{date_to}'. Expected YYYY-MM-DD.")
-
-    if from_dt > to_dt:
-        raise ValueError(f"date_from ({date_from}) must be before or equal to date_to ({date_to}).")
-
-    next_day = (to_dt + timedelta(days=1)).strftime("%Y-%m-%d")
-    return date_from, next_day
+    """Validate date range and return (date_from, next_day). Delegates to shared.validators."""
+    return validate_date_range_exclusive(date_from, date_to)
 
 
 # ==========================================================
@@ -85,7 +60,7 @@ def search_production_items(
         Dict with found items and their record counts
     """
     try:
-        like_keyword = f"%{keyword}%"
+        like_keyword = f"%{escape_like_wildcards(keyword)}%"
 
         if include_archive and ARCHIVE_DB_FILE.exists():
             # Search both Archive and Live, then merge results
@@ -423,6 +398,8 @@ def execute_custom_query(
         forbidden = [
             "DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE",
             "CREATE", "REPLACE", "PRAGMA", "ATTACH", "DETACH", "VACUUM", "REINDEX",
+            "LOAD_EXTENSION", "SQLITE_", "EXEC(", "EXECUTE", "SYSTEM",
+            "SCRIPT", "JAVASCRIPT", "EVAL",
         ]
         for word in forbidden:
             if word in sql_upper:
@@ -455,8 +432,12 @@ def execute_custom_query(
             conn.row_factory = sqlite3.Row
 
             if use_archive and ARCHIVE_DB_FILE.exists():
-                archive_path = str(ARCHIVE_DB_FILE.absolute()).replace("'", "''")
-                conn.execute(f"ATTACH DATABASE '{archive_path}' AS archive")
+                archive_path = str(ARCHIVE_DB_FILE.absolute())
+                # Validate path to prevent injection
+                validate_db_path(archive_path)
+                # Escape single quotes for SQL string literal
+                archive_path_escaped = archive_path.replace("'", "''")
+                conn.execute(f"ATTACH DATABASE '{archive_path_escaped}' AS archive")
 
             result = {"rows": [], "error": None}
 

@@ -37,6 +37,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from shared import DB_FILE, ARCHIVE_DB_FILE, DATABASE_DIR, DB_TIMEOUT, LOGS_DIR
+from shared.db_maintenance import (
+    wait_for_stabilization,
+    check_and_heal_indexes,
+    get_file_state,
+    REQUIRED_INDEXES,
+)
 
 
 # ==========================================================
@@ -44,15 +50,6 @@ from shared import DB_FILE, ARCHIVE_DB_FILE, DATABASE_DIR, DB_TIMEOUT, LOGS_DIR
 # ==========================================================
 STATE_FILE = DATABASE_DIR / ".watcher_state.json"
 DEFAULT_INTERVAL = 3600  # 1 hour
-STABILIZATION_WAIT = 5  # seconds between stability checks
-STABILIZATION_CHECKS = 3
-
-# Required indexes for production_records
-REQUIRED_INDEXES = {
-    "idx_production_date": "CREATE INDEX IF NOT EXISTS idx_production_date ON production_records(production_date)",
-    "idx_item_code": "CREATE INDEX IF NOT EXISTS idx_item_code ON production_records(item_code)",
-    "idx_item_date": "CREATE INDEX IF NOT EXISTS idx_item_date ON production_records(item_code, production_date)",  # v7: 복합 인덱스
-}
 
 
 # ==========================================================
@@ -111,83 +108,10 @@ def get_file_state(path: Path) -> tuple[float, int]:
 
 
 # ==========================================================
-# Core Functions
+# Core Functions (imported from shared.db_maintenance)
+# -- wait_for_stabilization, check_and_heal_indexes,
+#    get_file_state are now imported above.
 # ==========================================================
-def wait_for_stabilization(db_path: Path) -> bool:
-    """
-    Wait until the DB file's mtime stops changing.
-    Returns True if stabilized.
-    """
-    if not db_path.exists():
-        return False
-
-    last_mtime, last_size = get_file_state(db_path)
-
-    for _ in range(STABILIZATION_CHECKS):
-        time.sleep(STABILIZATION_WAIT)
-
-        current_mtime, current_size = get_file_state(db_path)
-
-        if current_mtime != last_mtime or current_size != last_size:
-            log("INFO", f"DB still changing, waiting... ({db_path.name})")
-            last_mtime, last_size = current_mtime, current_size
-            # Restart the wait
-            return wait_for_stabilization(db_path)
-
-    return True
-
-
-def check_and_heal_indexes(db_path: Path, is_archive: bool = False) -> dict:
-    """
-    Check and restore missing indexes on a database.
-    Returns dict with results.
-    """
-    result = {
-        "db": db_path.name,
-        "checked": False,
-        "healed": [],
-        "error": None
-    }
-
-    if not db_path.exists():
-        result["error"] = "File not found"
-        return result
-
-    try:
-        # Connect in read-write mode for potential index creation
-        conn = sqlite3.connect(str(db_path), timeout=DB_TIMEOUT)
-        cursor = conn.cursor()
-
-        # Get existing indexes
-        cursor.execute("PRAGMA index_list('production_records')")
-        existing = {row[1] for row in cursor.fetchall()}
-
-        result["checked"] = True
-
-        # Check and create missing indexes
-        for name, sql in REQUIRED_INDEXES.items():
-            if name not in existing:
-                log("INFO", f"Creating missing index: {name} on {db_path.name}")
-                cursor.execute(sql)
-                result["healed"].append(name)
-
-        if result["healed"]:
-            conn.commit()
-            log("INFO", f"Healed {len(result['healed'])} indexes on {db_path.name}")
-        else:
-            log("INFO", f"All indexes OK on {db_path.name}")
-
-        conn.close()
-
-    except sqlite3.Error as e:
-        result["error"] = str(e)
-        log("ERROR", f"SQLite error on {db_path.name}: {e}")
-
-    except Exception as e:
-        result["error"] = str(e)
-        log("ERROR", f"Error checking {db_path.name}: {e}")
-
-    return result
 
 
 def run_check() -> dict:

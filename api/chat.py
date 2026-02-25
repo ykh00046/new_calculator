@@ -40,15 +40,53 @@ from shared.rate_limiter import chat_rate_limiter
 
 # Load Environment Variables
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), "..", ".env"))
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 logger = get_logger(__name__)
 
-if not GEMINI_API_KEY:
-    logger.warning("GEMINI_API_KEY not found in .env file. AI chat will not work.")
+# GenAI Client - Lazy initialization to avoid startup failure
+_client: genai.Client | None = None
+_client_initialized = False
 
-# Initialize GenAI Client
-client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+
+def _get_client() -> genai.Client | None:
+    """
+    Get or initialize the GenAI client with proper validation.
+
+    Uses lazy initialization to:
+    1. Avoid startup failure if API key is missing
+    2. Log appropriate warnings only on first access
+    3. Allow runtime key changes (rare but possible)
+
+    Returns:
+        genai.Client if API key is configured, None otherwise.
+    """
+    global _client, _client_initialized
+
+    if _client_initialized:
+        return _client
+
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        logger.warning("GEMINI_API_KEY not found in .env file. AI chat will not work.")
+        _client_initialized = True
+        return None
+
+    try:
+        _client = genai.Client(api_key=api_key)
+        logger.info("GenAI client initialized successfully")
+    except Exception as e:
+        logger.error(f"Failed to initialize GenAI client: {e}")
+        _client = None
+
+    _client_initialized = True
+    return _client
+
+
+# Backward compatibility - property for direct access
+@property
+def client():
+    """Deprecated: Use _get_client() instead."""
+    return _get_client()
 
 # Import Tools
 from .tools import (
@@ -72,13 +110,16 @@ RETRYABLE_STATUS_CODES = {429, 500, 503}
 
 
 # ==========================================================
-# Multi-turn Session Store (In-memory)
+# Multi-turn Session Store (In-memory with limits)
 # ==========================================================
 SESSION_TTL = 1800  # 30 minutes
 SESSION_MAX_TURNS = 10  # Max conversation turns per session
+SESSION_MAX_COUNT = 1000  # Max concurrent sessions to prevent memory exhaustion
+SESSION_CLEANUP_INTERVAL = 100  # Cleanup every N requests (rate limiting)
 
 _sessions: dict[str, dict] = {}
 # Structure: {session_id: {"history": [Content, ...], "last_access": float}}
+_cleanup_counter = 0  # Counter for rate-limited cleanup
 
 
 def _get_session_history(session_id: str | None) -> list:
@@ -108,14 +149,48 @@ def _save_session_history(session_id: str | None, history: list) -> None:
 
 
 def _cleanup_expired_sessions() -> None:
-    """Remove sessions that exceeded TTL (lazy cleanup)."""
+    """
+    Remove sessions that exceeded TTL (lazy cleanup with rate limiting).
+
+    Rate limiting: Only runs every SESSION_CLEANUP_INTERVAL requests.
+    Memory protection: If session count exceeds SESSION_MAX_COUNT, removes oldest.
+    """
+    global _cleanup_counter
+    _cleanup_counter += 1
+
+    # Rate limiting: Only cleanup every N requests
+    if _cleanup_counter < SESSION_CLEANUP_INTERVAL:
+        return
+    _cleanup_counter = 0
+
     now = time.time()
+
+    # Remove expired sessions
     expired = [
         sid for sid, data in _sessions.items()
         if now - data["last_access"] > SESSION_TTL
     ]
     for sid in expired:
         del _sessions[sid]
+
+    # Memory protection: Remove oldest if over limit
+    if len(_sessions) > SESSION_MAX_COUNT:
+        # Sort by last_access and remove oldest
+        sorted_sessions = sorted(
+            _sessions.items(),
+            key=lambda x: x[1]["last_access"]
+        )
+        # Remove oldest sessions to get under limit
+        to_remove = len(_sessions) - SESSION_MAX_COUNT
+        for sid, _ in sorted_sessions[:to_remove]:
+            del _sessions[sid]
+        logger.warning(
+            f"[Session Cleanup] Session limit reached ({SESSION_MAX_COUNT}), "
+            f"removed {to_remove} oldest sessions"
+        )
+
+    if expired:
+        logger.debug(f"[Session Cleanup] Removed {len(expired)} expired sessions")
 
 
 # ==========================================================
@@ -194,10 +269,16 @@ def _calculate_delay(attempt: int) -> float:
     """
     Calculate delay with exponential backoff + jitter.
     Formula: min(base * 2^attempt + random_jitter, max_delay)
+
+    v8: Added overflow protection by capping exponential base.
     """
-    exponential = BASE_DELAY * (2 ** attempt)
+    # Cap the exponential to prevent overflow (max 2^10 = 1024)
+    capped_attempt = min(attempt, 10)
+    exponential = BASE_DELAY * (2 ** capped_attempt)
     jitter = random.uniform(0, 1)  # Add 0-1 second random jitter
-    delay = min(exponential + jitter, MAX_TOTAL_DELAY / MAX_RETRIES)
+    # Use a reasonable max per-attempt delay (5 seconds)
+    max_per_attempt_delay = 5.0
+    delay = min(exponential + jitter, max_per_attempt_delay)
     return delay
 
 
@@ -227,7 +308,7 @@ async def chat_with_data(request: ChatRequest, http_request: Request):
             headers={"Retry-After": str(retry_after)}
         )
 
-    if not client:
+    if not _get_client():
         logger.error(f"[Chat] request_id={request_id} | API key not configured")
         raise HTTPException(status_code=500, detail="Gemini API Key is not configured.")
 
@@ -256,7 +337,7 @@ async def chat_with_data(request: ChatRequest, http_request: Request):
     for attempt in range(MAX_RETRIES):
         try:
             # Generate content with tools and system instruction
-            response = client.models.generate_content(
+            response = _get_client().models.generate_content(
                 model='gemini-2.5-flash',
                 contents=contents,
                 config=types.GenerateContentConfig(

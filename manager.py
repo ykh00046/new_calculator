@@ -1,16 +1,18 @@
 import os
 import sys
+import atexit
 import threading
 import subprocess
 import socket
 import webbrowser
 import time
 import queue
-import sqlite3
 from pathlib import Path
 import tkinter as tk
 import tkinter.messagebox as messagebox
 import customtkinter as ctk
+
+from portal_settings_dialog import PortalSettingsDialog
 
 # Add current directory to path for shared module import
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -23,6 +25,45 @@ from shared import (
     API_PORT,
     DB_TIMEOUT,
 )
+from tools.db_watcher import DBWatcher
+
+
+# ==========================================================
+# Process Cleanup on Exit
+# ==========================================================
+_active_processes: list[subprocess.Popen] = []
+_process_lock = threading.Lock()
+
+
+def _cleanup_all_processes() -> None:
+    """Cleanup all managed subprocesses on program exit."""
+    with _process_lock:
+        for proc in _active_processes:
+            try:
+                if proc.poll() is None:
+                    _taskkill_tree(proc.pid)
+            except Exception:
+                pass
+        _active_processes.clear()
+
+
+def _register_process(proc: subprocess.Popen) -> None:
+    """Register a process for cleanup on exit."""
+    with _process_lock:
+        _active_processes.append(proc)
+
+
+def _unregister_process(proc: subprocess.Popen) -> None:
+    """Unregister a process from cleanup."""
+    with _process_lock:
+        try:
+            _active_processes.remove(proc)
+        except ValueError:
+            pass
+
+
+# Register cleanup on exit
+atexit.register(_cleanup_all_processes)
 
 # ==========================================================
 # Configuration & Constants
@@ -41,114 +82,6 @@ COLOR_INFO = "#e0e0e0"    # Light Gray
 COLOR_MUTED = "#757575"   # Dark Gray
 COLOR_BG_CARD = "#2b2b2b" # Card Background
 
-# ==========================================================
-# DB Watcher Logic (Background Thread)
-# ==========================================================
-class DBWatcher(threading.Thread):
-    def __init__(self, log_queue, interval=3600):
-        super().__init__()
-        self.log_queue = log_queue
-        self.interval = interval  # Default 1 hour
-        self.running = False
-        # Track both Live and Archive DBs
-        self.db_states = {}  # {db_path: (mtime, size)}
-
-        for db_file in [DB_FILE, ARCHIVE_DB_FILE]:
-            if db_file.exists():
-                self.db_states[str(db_file)] = (
-                    os.path.getmtime(db_file),
-                    os.path.getsize(db_file)
-                )
-
-    def run(self):
-        self.running = True
-        self.log_queue.put(("SUCCESS", "✅ DB Watcher Started (Interval: 1h)"))
-        
-        while self.running:
-            try:
-                for _ in range(self.interval):
-                    if not self.running: break
-                    time.sleep(1)
-                
-                if not self.running: break
-                self._check_and_heal()
-                
-            except Exception as e:
-                self.log_queue.put(("ERROR", f"Watcher Error: {e}"))
-                time.sleep(60)
-
-    def stop(self):
-        self.running = False
-        self.log_queue.put(("INFO", "🛑 DB Watcher Stopped"))
-
-    def _check_and_heal(self):
-        """Check both Live and Archive DBs for changes and heal indexes."""
-        for db_path_str, (last_mtime, last_size) in list(self.db_states.items()):
-            db_file = Path(db_path_str)
-            if not db_file.exists():
-                continue
-
-            current_mtime = os.path.getmtime(db_file)
-            current_size = os.path.getsize(db_file)
-
-            if current_mtime != last_mtime or current_size != last_size:
-                db_name = db_file.name
-                self.log_queue.put(("WARN", f"🔄 DB Change Detected ({db_name})! Waiting for stabilization..."))
-
-                if self._wait_for_stabilization(db_file, current_mtime, current_size):
-                    self.log_queue.put(("INFO", f"✅ {db_name} Stabilized. Checking indexes..."))
-                    self._heal_index(db_file)
-                    self.db_states[db_path_str] = (
-                        os.path.getmtime(db_file),
-                        os.path.getsize(db_file)
-                    )
-                else:
-                    self.log_queue.put(("WARN", f"⚠️ {db_name} unstable. Skip this cycle."))
-
-    def _wait_for_stabilization(self, db_file, initial_mtime, initial_size):
-        """Wait for DB to stabilize (no changes for 15 seconds)."""
-        for _ in range(3):
-            time.sleep(5)
-            if not db_file.exists():
-                return False
-            now_mtime = os.path.getmtime(db_file)
-            now_size = os.path.getsize(db_file)
-            if now_mtime != initial_mtime or now_size != initial_size:
-                return False
-        return True
-
-    def _heal_index(self, db_file):
-        """Heal indexes for a specific database file."""
-        db_name = db_file.name
-        try:
-            conn = sqlite3.connect(f"file:{db_file}?mode=rw", uri=True, timeout=DB_TIMEOUT)
-            cursor = conn.cursor()
-            cursor.execute("PRAGMA index_list('production_records')")
-            indexes = [row[1] for row in cursor.fetchall()]
-
-            required_indexes = {
-                "idx_production_date": "CREATE INDEX IF NOT EXISTS idx_production_date ON production_records(production_date)",
-                "idx_item_code": "CREATE INDEX IF NOT EXISTS idx_item_code ON production_records(item_code)",
-                "idx_item_date": "CREATE INDEX IF NOT EXISTS idx_item_date ON production_records(item_code, production_date)",
-            }
-
-            restored = []
-            for name, sql in required_indexes.items():
-                if name not in indexes:
-                    cursor.execute(sql)
-                    restored.append(name)
-
-            if restored:
-                conn.commit()
-                self.log_queue.put(("SUCCESS", f"♻️ [{db_name}] Auto-Healed Indexes: {', '.join(restored)}"))
-            else:
-                self.log_queue.put(("INFO", f"👍 [{db_name}] Indexes are healthy."))
-            conn.close()
-        except Exception as e:
-            self.log_queue.put(("ERROR", f"❌ [{db_name}] Index Heal Failed: {e}"))
-
-    def manual_trigger(self):
-        threading.Thread(target=self._check_and_heal, daemon=True).start()
 
 
 # ==========================================================
@@ -177,7 +110,7 @@ def _taskkill_tree(pid: int):
 
 
 # ==========================================================
-# Manager UI (v2.1 - Enhanced UX)
+# Manager UI (v3.0 - Portal Integration)
 # ==========================================================
 class ServerManager(ctk.CTk):
     def __init__(self):
@@ -191,21 +124,23 @@ class ServerManager(ctk.CTk):
         # State
         self.proc_web = None
         self.proc_api = None
+        self.proc_portal = None
         self.log_queue = queue.Queue()
         self.watcher = None
 
-        # --- Layout ---
+        # --- Layout (2×2 grid) ---
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=1)
         self.grid_rowconfigure(0, weight=0) # Header
         self.grid_rowconfigure(1, weight=3) # Web/API Panel
-        self.grid_rowconfigure(2, weight=1) # DB Panel
+        self.grid_rowconfigure(2, weight=2) # DB + Portal Panel
 
         # --- Sections ---
         self._init_header()
         self._init_web_panel()
         self._init_api_panel()
         self._init_db_panel()
+        self._init_portal_panel()
 
         # Start Queue Listener
         self.after(100, self._process_log_queue)
@@ -313,7 +248,7 @@ class ServerManager(ctk.CTk):
 
     def _init_db_panel(self):
         self.db_frame = ctk.CTkFrame(self, corner_radius=15, fg_color=COLOR_BG_CARD)
-        self.db_frame.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=20, pady=(10, 20))
+        self.db_frame.grid(row=2, column=0, sticky="nsew", padx=(20, 10), pady=(10, 20))
         self.db_frame.grid_columnconfigure(1, weight=1)
 
         # Title
@@ -346,6 +281,45 @@ class ServerManager(ctk.CTk):
         self.log_db.tag_config("SUCCESS", foreground=COLOR_SUCCESS)
         
         self.append_log(self.log_db, ">>> Automation System Initialized.", "INFO")
+
+    def _init_portal_panel(self):
+        self.portal_frame = ctk.CTkFrame(self, corner_radius=15, fg_color=COLOR_BG_CARD)
+        self.portal_frame.grid(row=2, column=1, sticky="nsew", padx=(10, 20), pady=(10, 20))
+        self.portal_frame.grid_rowconfigure(3, weight=1)
+        self.portal_frame.grid_columnconfigure(0, weight=1)
+
+        # Status Bar
+        self.portal_status_bar = ctk.CTkFrame(self.portal_frame, height=4, fg_color=COLOR_MUTED, corner_radius=2)
+        self.portal_status_bar.grid(row=0, column=0, sticky="ew", padx=2, pady=2)
+
+        # Content
+        content_box = ctk.CTkFrame(self.portal_frame, fg_color="transparent")
+        content_box.grid(row=1, column=0, sticky="nsew", padx=20, pady=10)
+
+        ctk.CTkLabel(content_box, text="🤖 Portal Automation", text_color="#ffffff", font=ctk.CTkFont(size=18, weight="bold")).pack(anchor="w")
+        self.lbl_portal_status = ctk.CTkLabel(content_box, text="Stopped", text_color=COLOR_MUTED, font=ctk.CTkFont(size=14))
+        self.lbl_portal_status.pack(anchor="w", pady=(0, 10))
+
+        # Controls
+        ctrl_frame = ctk.CTkFrame(self.portal_frame, fg_color="transparent")
+        ctrl_frame.grid(row=2, column=0, sticky="ew", padx=20, pady=(0, 10))
+
+        self.btn_portal_start = ctk.CTkButton(ctrl_frame, text="▶ Start", command=self.start_portal, fg_color="#6a1b9a", width=80)
+        self.btn_portal_start.pack(side="left", padx=(0, 5))
+        self.btn_portal_stop = ctk.CTkButton(ctrl_frame, text="■ Stop", command=self.stop_portal, fg_color="#c62828", state="disabled", width=80)
+        self.btn_portal_stop.pack(side="left", padx=5)
+        ctk.CTkButton(ctrl_frame, text="🚀 Run Now", command=self.run_portal_now, fg_color="#e65100", hover_color="#ef6c00", width=100).pack(side="left", padx=5)
+        ctk.CTkButton(ctrl_frame, text="⚙️ Settings", command=self.open_portal_settings, fg_color="#37474f", hover_color="#546e7a", width=100).pack(side="left", padx=5)
+
+        # Log Area
+        self.log_portal = ctk.CTkTextbox(self.portal_frame, font=("Consolas", 12), text_color="#eeeeee", activate_scrollbars=True)
+        self.log_portal.grid(row=3, column=0, sticky="nsew", padx=20, pady=20)
+        self.log_portal.configure(state="disabled")
+
+        self.log_portal.tag_config("INFO", foreground=COLOR_INFO)
+        self.log_portal.tag_config("WARN", foreground=COLOR_WARN)
+        self.log_portal.tag_config("ERROR", foreground=COLOR_ERROR)
+        self.log_portal.tag_config("SUCCESS", foreground=COLOR_SUCCESS)
 
     # --------------------------
     # Logging with Colors
@@ -414,20 +388,25 @@ class ServerManager(ctk.CTk):
         except Exception:
             pass
         finally:
-            self.append_log(widget, ">>> Process Exited", "WARN")
+            try:
+                self.append_log(widget, ">>> Process Exited", "WARN")
+            except Exception:
+                pass  # Widget may be destroyed
 
-    def _start_process(self, cmd, widget):
+    def _start_process(self, cmd, widget, cwd=None):
         # Use UTF-8 environment for subprocess
         env = os.environ.copy()
         env["PYTHONIOENCODING"] = "utf-8"
         env["PYTHONUTF8"] = "1"
 
         proc = subprocess.Popen(
-            cmd, cwd=str(BASE_DIR),
+            cmd, cwd=cwd or str(BASE_DIR),
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1, encoding='utf-8', errors='replace',
             env=env
         )
+        # Register for cleanup on exit
+        _register_process(proc)
         threading.Thread(target=self._stream_output, args=(proc, widget), daemon=True).start()
         return proc
 
@@ -447,7 +426,9 @@ class ServerManager(ctk.CTk):
         self.proc_web = self._start_process(cmd, self.log_web)
 
     def stop_web(self):
-        if self.proc_web: _taskkill_tree(self.proc_web.pid)
+        if self.proc_web:
+            _unregister_process(self.proc_web)
+            _taskkill_tree(self.proc_web.pid)
         self.proc_web = None
         self.btn_web_start.configure(state="normal")
         self.btn_web_stop.configure(state="disabled")
@@ -471,7 +452,9 @@ class ServerManager(ctk.CTk):
         self.proc_api = self._start_process(cmd, self.log_api)
 
     def stop_api(self):
-        if self.proc_api: _taskkill_tree(self.proc_api.pid)
+        if self.proc_api:
+            _unregister_process(self.proc_api)
+            _taskkill_tree(self.proc_api.pid)
         self.proc_api = None
         self.btn_api_start.configure(state="normal")
         self.btn_api_stop.configure(state="disabled")
@@ -479,10 +462,77 @@ class ServerManager(ctk.CTk):
         self.api_status_bar.configure(fg_color=COLOR_MUTED) # Status Bar OFF
         self.append_log(self.log_api, ">>> Stopped.", "WARN")
 
+    def start_portal(self):
+        if self.proc_portal and self.proc_portal.poll() is None:
+            return
+
+        self.btn_portal_start.configure(state="disabled")
+        self.btn_portal_stop.configure(state="normal")
+        self.lbl_portal_status.configure(text="Running", text_color=COLOR_SUCCESS)
+        self.portal_status_bar.configure(fg_color=COLOR_SUCCESS)
+        self.append_log(self.log_portal, ">>> Starting Portal Automation...", "INFO")
+
+        portal_dir = str(BASE_DIR / "webcloring-pdf")
+        cmd = [PY, "main.py", "--auto"]
+        self.proc_portal = self._start_process(cmd, self.log_portal, cwd=portal_dir)
+
+    def stop_portal(self):
+        if self.proc_portal:
+            _unregister_process(self.proc_portal)
+            _taskkill_tree(self.proc_portal.pid)
+        self.proc_portal = None
+        self.btn_portal_start.configure(state="normal")
+        self.btn_portal_stop.configure(state="disabled")
+        self.lbl_portal_status.configure(text="Stopped", text_color=COLOR_MUTED)
+        self.portal_status_bar.configure(fg_color=COLOR_MUTED)
+        self.append_log(self.log_portal, ">>> Stopped.", "WARN")
+
+    def open_portal_settings(self):
+        """Open portal settings dialog."""
+        env_path = BASE_DIR / "webcloring-pdf" / ".env"
+        dialog = PortalSettingsDialog(self, env_path)
+        self.wait_window(dialog)
+        if dialog.result:
+            self.append_log(self.log_portal, "⚙️ Settings saved.", "SUCCESS")
+
+    def run_portal_now(self):
+        """Run portal automation once (non-blocking)."""
+        if self.proc_portal and self.proc_portal.poll() is None:
+            self.append_log(self.log_portal, "⚠️ Already running.", "WARN")
+            return
+
+        self.btn_portal_start.configure(state="disabled")
+        self.btn_portal_stop.configure(state="normal")
+        self.lbl_portal_status.configure(text="Running (1-shot)", text_color="#ffb74d")
+        self.portal_status_bar.configure(fg_color="#ffb74d")
+        self.append_log(self.log_portal, ">>> Running Portal Automation (1-shot)...", "INFO")
+
+        portal_dir = str(BASE_DIR / "webcloring-pdf")
+        cmd = [PY, "main.py", "--auto"]
+        self.proc_portal = self._start_process(cmd, self.log_portal, cwd=portal_dir)
+
+        # Monitor for completion and reset UI (thread-safe via self.after)
+        def _monitor():
+            if self.proc_portal:
+                self.proc_portal.wait()
+            try:
+                self.after(0, self._reset_portal_ui)
+            except Exception:
+                pass  # Widget may be destroyed
+        threading.Thread(target=_monitor, daemon=True).start()
+
+    def _reset_portal_ui(self):
+        """Reset portal panel to stopped state (main thread only)."""
+        self.btn_portal_start.configure(state="normal")
+        self.btn_portal_stop.configure(state="disabled")
+        self.lbl_portal_status.configure(text="Stopped", text_color=COLOR_MUTED)
+        self.portal_status_bar.configure(fg_color=COLOR_MUTED)
+
     def on_close(self):
         if self.watcher: self.watcher.stop()
         self.stop_web()
         self.stop_api()
+        self.stop_portal()
         self.destroy()
         sys.exit(0)
 
