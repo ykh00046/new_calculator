@@ -14,6 +14,8 @@ from typing import Callable, Optional
 import tkinter as tk
 import tkinter.messagebox as messagebox
 import customtkinter as ctk
+import pystray
+from PIL import Image, ImageDraw
 
 from portal_settings_dialog import PortalSettingsDialog
 
@@ -84,6 +86,32 @@ COLOR_WARN = "#ffb74d"    # Orange
 COLOR_INFO = "#e0e0e0"    # Light Gray
 COLOR_MUTED = "#757575"   # Dark Gray
 COLOR_BG_CARD = "#2b2b2b" # Card Background
+
+
+# ==========================================================
+# System Tray Icon
+# ==========================================================
+def _create_tray_icon() -> Image.Image:
+    """Create tray icon image."""
+    # Create a simple icon (tool/gear symbol)
+    size = 64
+    image = Image.new('RGBA', (size, size), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+
+    # Draw a simple gear-like circle
+    center = size // 2
+    radius = size // 2 - 4
+
+    # Outer circle (dark blue)
+    draw.ellipse([8, 8, size-8, size-8], fill='#1a237e', outline='#3949ab', width=2)
+
+    # Inner circle (white)
+    draw.ellipse([20, 20, size-20, size-20], fill='#ffffff')
+
+    # Center dot
+    draw.ellipse([26, 26, size-26, size-26], fill='#1a237e')
+
+    return image
 
 
 # ==========================================================
@@ -263,26 +291,27 @@ class ServerManager(ctk.CTk):
 
         # Window Setup
         self.title("Production Data Hub Manager")
-        self.geometry("1200x850")
+        self.geometry("1400x800")
         self.local_ip = _get_local_ip()
-        
+
         # State
         self.log_queue = queue.Queue()
         self.watcher = None
 
-        # --- Layout (2×2 grid) ---
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_columnconfigure(1, weight=1)
-        self.grid_rowconfigure(0, weight=0) # Header
-        self.grid_rowconfigure(1, weight=3) # Web/API Panel
-        self.grid_rowconfigure(2, weight=2) # DB + Portal Panel
+        # --- Layout (3-column: Services | Services | Automation) ---
+        self.grid_columnconfigure(0, weight=2)  # Dashboard
+        self.grid_columnconfigure(1, weight=2)  # API
+        self.grid_columnconfigure(2, weight=1)  # Portal + DB Auto
+        self.grid_rowconfigure(0, weight=0)     # Header
+        self.grid_rowconfigure(1, weight=1)     # Row 1
+        self.grid_rowconfigure(2, weight=1)     # Row 2
 
         # --- Sections ---
         self._init_header()
         self._init_web_panel()
         self._init_api_panel()
-        self._init_db_panel()
         self._init_portal_panel()
+        self._init_db_panel()
 
         # Start Queue Listener
         self.after(100, self._process_log_queue)
@@ -293,20 +322,27 @@ class ServerManager(ctk.CTk):
         # Safety on close
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
+        # Setup system tray
+        self._setup_tray()
+
     def _init_header(self):
         header_frame = ctk.CTkFrame(self, fg_color="transparent")
-        header_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=20, pady=(20, 10))
+        header_frame.grid(row=0, column=0, columnspan=3, sticky="ew", padx=20, pady=(20, 10))
 
         title_label = ctk.CTkLabel(
-            header_frame, 
-            text="Production Data Hub", 
+            header_frame,
+            text="Production Data Hub",
             text_color="#ffffff",
             font=ctk.CTkFont(family="Segoe UI", size=24, weight="bold")
         )
         title_label.pack(side="left")
 
+        # Status indicators
+        status_frame = ctk.CTkFrame(header_frame, fg_color="transparent")
+        status_frame.pack(side="right")
+
         ip_badge = ctk.CTkButton(
-            header_frame, text=f"Host: {self.local_ip}",
+            status_frame, text=f"Host: {self.local_ip}",
             font=ctk.CTkFont(size=12, weight="bold"),
             fg_color="#424242", hover=False, height=28, corner_radius=14,
             text_color_disabled="#E0E0E0", state="disabled"
@@ -327,7 +363,7 @@ class ServerManager(ctk.CTk):
         self.web_panel = ServicePanel(
             self,
             config,
-            grid_args={"row": 1, "column": 0, "sticky": "nsew", "padx": (20, 10), "pady": 10}
+            grid_args={"row": 1, "column": 0, "rowspan": 2, "sticky": "nsew", "padx": (20, 10), "pady": 10}
         )
 
     def _init_api_panel(self):
@@ -344,7 +380,7 @@ class ServerManager(ctk.CTk):
         self.api_panel = ServicePanel(
             self,
             config,
-            grid_args={"row": 1, "column": 1, "sticky": "nsew", "padx": (10, 20), "pady": 10}
+            grid_args={"row": 1, "column": 1, "rowspan": 2, "sticky": "nsew", "padx": 10, "pady": 10}
         )
 
     def _init_portal_panel(self):
@@ -362,37 +398,35 @@ class ServerManager(ctk.CTk):
         self.portal_panel = ServicePanel(
             self,
             config,
-            grid_args={"row": 2, "column": 1, "sticky": "nsew", "padx": (10, 20), "pady": (10, 20)}
+            grid_args={"row": 1, "column": 2, "sticky": "nsew", "padx": (10, 20), "pady": (10, 5)}
         )
 
     def _init_db_panel(self):
-        """Initialize DB Automation panel (custom layout)."""
+        """Initialize DB Automation panel (compact layout for 3rd column)."""
         self.db_frame = ctk.CTkFrame(self, corner_radius=15, fg_color=COLOR_BG_CARD)
-        self.db_frame.grid(row=2, column=0, sticky="nsew", padx=(20, 10), pady=(10, 20))
-        self.db_frame.grid_columnconfigure(1, weight=1)
+        self.db_frame.grid(row=2, column=2, sticky="nsew", padx=(10, 20), pady=(5, 10))
+        self.db_frame.grid_rowconfigure(1, weight=1)
+        self.db_frame.grid_columnconfigure(0, weight=1)
 
-        # Title
-        title_frame = ctk.CTkFrame(self.db_frame, fg_color="transparent")
-        title_frame.grid(row=0, column=0, sticky="w", padx=20, pady=20)
+        # Status Bar
+        self.db_status_bar = ctk.CTkFrame(self.db_frame, height=4, fg_color=COLOR_SUCCESS, corner_radius=2)
+        self.db_status_bar.grid(row=0, column=0, sticky="ew", padx=2, pady=2)
 
-        ctk.CTkLabel(title_frame, text="🔧 DB Automation", text_color="#ffffff", font=ctk.CTkFont(size=16, weight="bold")).pack(anchor="w")
-        self.lbl_watcher_status = ctk.CTkLabel(title_frame, text="Active (1h)", text_color=COLOR_SUCCESS, font=ctk.CTkFont(size=12))
-        self.lbl_watcher_status.pack(anchor="w")
+        # Header
+        header_frame = ctk.CTkFrame(self.db_frame, fg_color="transparent")
+        header_frame.grid(row=1, column=0, sticky="ew", padx=15, pady=10)
 
-        # Controls
-        btn_frame = ctk.CTkFrame(self.db_frame, fg_color="transparent")
-        btn_frame.grid(row=0, column=2, sticky="e", padx=20, pady=20)
+        ctk.CTkLabel(header_frame, text="🔧 DB Automation", text_color="#ffffff",
+                     font=ctk.CTkFont(size=16, weight="bold")).pack(side="left")
 
-        ctk.CTkButton(btn_frame, text="🛠️ Check Now", command=self.manual_db_check,
-                      fg_color="#e65100", hover_color="#ef6c00", width=120).pack(side="right", padx=10)
+        self.lbl_watcher_status = ctk.CTkLabel(header_frame, text="Active (1h)",
+                                                text_color=COLOR_SUCCESS, font=ctk.CTkFont(size=11))
+        self.lbl_watcher_status.pack(side="right")
 
-        self.btn_toggle_watcher = ctk.CTkButton(btn_frame, text="Pause", command=self.toggle_watcher,
-                                                fg_color="#546e7a", width=100)
-        self.btn_toggle_watcher.pack(side="right")
-
-        # Log Area
-        self.log_db = ctk.CTkTextbox(self.db_frame, height=80, font=("Consolas", 11), text_color="#eeeeee", activate_scrollbars=True)
-        self.log_db.grid(row=0, column=1, sticky="nsew", padx=10, pady=15)
+        # Compact Log Area
+        self.log_db = ctk.CTkTextbox(self.db_frame, height=100, font=("Consolas", 10),
+                                      text_color="#eeeeee", activate_scrollbars=True)
+        self.log_db.grid(row=2, column=0, sticky="nsew", padx=15, pady=(0, 15))
         self.log_db.configure(state="disabled")
 
         self.log_db.tag_config("INFO", foreground=COLOR_INFO)
@@ -400,7 +434,7 @@ class ServerManager(ctk.CTk):
         self.log_db.tag_config("ERROR", foreground=COLOR_ERROR)
         self.log_db.tag_config("SUCCESS", foreground=COLOR_SUCCESS)
 
-        self._append_db_log(">>> Automation System Initialized.", "INFO")
+        self._append_db_log(">>> DB Watcher Initialized.", "INFO")
 
     # --------------------------
     # Logging with Colors
@@ -427,18 +461,17 @@ class ServerManager(ctk.CTk):
     # Logic
     # --------------------------
     def toggle_watcher(self):
-        if self.watcher and self.watcher.is_alive():
-            self.watcher.stop()
-            self.watcher = None
-            self.lbl_watcher_status.configure(text="Paused", text_color=COLOR_MUTED)
-            self.btn_toggle_watcher.configure(text="Resume", fg_color="#2e7d32")
-        else:
+        """Start DB watcher (always active, no toggle needed)."""
+        if not self.watcher or not self.watcher.is_alive():
             self.watcher = DBWatcher(self.log_queue)
             self.watcher.start()
             self.lbl_watcher_status.configure(text="Active (1h)", text_color=COLOR_SUCCESS)
-            self.btn_toggle_watcher.configure(text="Pause", fg_color="#546e7a")
+            self.db_status_bar.configure(fg_color=COLOR_SUCCESS)
 
     def manual_db_check(self):
+        """Trigger manual DB check (auto-start watcher if not running)."""
+        if not self.watcher or not self.watcher.is_alive():
+            self.toggle_watcher()
         if self.watcher:
             self.log_queue.put(("INFO", "🛠️ Manual Check Triggered..."))
             self.watcher.manual_trigger()
@@ -591,7 +624,46 @@ class ServerManager(ctk.CTk):
         """Reset portal panel to stopped state (main thread only)."""
         self.portal_panel.set_stopped()
 
-    def on_close(self):
+    # --------------------------
+    # System Tray
+    # --------------------------
+    def _setup_tray(self) -> None:
+        """Setup system tray icon."""
+        icon_image = _create_tray_icon()
+
+        menu = pystray.Menu(
+            pystray.MenuItem("창 보이기", self._show_window, default=True),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem("완전 종료", self._quit_app),
+        )
+
+        self.tray_icon = pystray.Icon("production_hub", icon_image, "Production Hub", menu)
+
+    def _show_window(self, icon=None, item=None) -> None:
+        """Show window from tray."""
+        self.after(0, self._restore_window)
+
+    def _restore_window(self) -> None:
+        """Restore window (called from tray thread)."""
+        self.deiconify()
+        self.lift()
+        self.focus_force()
+
+    def _hide_to_tray(self) -> None:
+        """Hide window to system tray."""
+        self.withdraw()
+        if self.tray_icon and not self.tray_icon.visible:
+            # Run tray icon in separate thread
+            threading.Thread(target=self.tray_icon.run, daemon=True).start()
+
+    def _quit_app(self, icon=None, item=None) -> None:
+        """Completely quit the application."""
+        if self.tray_icon:
+            self.tray_icon.stop()
+        self.after(0, self._cleanup_and_exit)
+
+    def _cleanup_and_exit(self) -> None:
+        """Cleanup and exit (called from tray thread)."""
         if self.watcher:
             self.watcher.stop()
         self.stop_web()
@@ -599,6 +671,11 @@ class ServerManager(ctk.CTk):
         self.stop_portal()
         self.destroy()
         sys.exit(0)
+
+    def on_close(self) -> None:
+        """Handle window close button - hide to tray instead of quitting."""
+        self._hide_to_tray()
+
 
 if __name__ == "__main__":
     app = ServerManager()
