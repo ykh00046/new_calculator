@@ -45,7 +45,12 @@ from components import (
     render_ai_section,
 )
 
-st.set_page_config(page_title="Production Data Hub", layout="wide", page_icon=":factory:")
+st.set_page_config(
+    page_title="Production Data Hub",
+    layout="wide",
+    page_icon=":factory:",
+    initial_sidebar_state="collapsed"
+)
 
 # ==========================================================
 # Theme and UI Initialization
@@ -459,7 +464,7 @@ with tab2:
         fig.update_yaxes(title_text="생산량 (개)", secondary_y=False)
         fig.update_yaxes(title_text="배치 수", secondary_y=True)
 
-        st.plotly_chart(fig, use_container_width=True, config=get_chart_config(f"production_trends_{agg_unit.lower()}"))
+        st.plotly_chart(fig, width="stretch", config=get_chart_config(f"production_trends_{agg_unit.lower()}"))
         st.dataframe(summary_df, width="stretch", hide_index=True)
 
 with tab3:
@@ -480,12 +485,12 @@ with tab4:
     with col_left:
         st.write("**Top 10 제품**")
         fig_bar = create_top10_bar_chart(df, chart_template)
-        st.plotly_chart(fig_bar, use_container_width=True, config=get_chart_config("top10_products"))
+        st.plotly_chart(fig_bar, width="stretch", config=get_chart_config("top10_products"))
 
     with col_right:
         st.write("**생산 분포**")
         fig_pie = create_distribution_pie(df, chart_template)
-        st.plotly_chart(fig_pie, use_container_width=True, config=get_chart_config("product_distribution"))
+        st.plotly_chart(fig_pie, width="stretch", config=get_chart_config("product_distribution"))
 
     # Product trend comparison
     st.divider()
@@ -512,7 +517,7 @@ with tab4:
             )
 
             fig_trend = create_trend_lines(df, selected_compare, trend_agg, chart_template)
-            st.plotly_chart(fig_trend, use_container_width=True, config=get_chart_config("product_trends"))
+            st.plotly_chart(fig_trend, width="stretch", config=get_chart_config("product_trends"))
         else:
             st.info("위에서 제품을 선택하면 추세 비교가 표시됩니다.")
     else:

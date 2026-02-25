@@ -99,7 +99,7 @@ def render_faq_chips() -> Optional[str]:
 
     selected_faq = None
     for i, q in enumerate(faq_queries):
-        if cols[i].button(q, use_container_width=True, key=f"faq_{i}"):
+        if cols[i].button(q, width="stretch", key=f"faq_{i}"):
             selected_faq = q
 
     return selected_faq
@@ -166,16 +166,17 @@ def render_ai_section(api_url: str = "http://localhost:8000/chat/") -> None:
     Args:
         api_url: URL of the chat API endpoint
     """
-    # Apply AI section CSS
+    # Apply AI section CSS - Theme-aware styling
     st.markdown("""
     <style>
-        /* AI section glow effects */
+        /* Chat messages - transparent background with border only */
+        /* Works in both dark and light modes */
         [data-testid="stChatMessage"] {
-            background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+            background: transparent;
+            border: 1px solid rgba(128, 128, 128, 0.3);
             border-radius: 12px;
             padding: 10px 15px;
             margin: 5px 0;
-            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
         }
 
         [data-testid="stChatMessage"][data-testid*="assistant"] {

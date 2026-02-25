@@ -178,11 +178,11 @@ def render_preset_manager(
             col_a, col_b = st.sidebar.columns(2)
 
             with col_a:
-                if st.button("Apply", key="apply_preset", use_container_width=True):
+                if st.button("Apply", key="apply_preset", width="stretch"):
                     loaded_preset = load_preset(selected_preset)
 
             with col_b:
-                if st.button("Delete", key="delete_preset", use_container_width=True):
+                if st.button("Delete", key="delete_preset", width="stretch"):
                     if delete_preset(selected_preset):
                         st.sidebar.success(f"Deleted '{selected_preset}'")
                         st.rerun()
@@ -195,7 +195,7 @@ def render_preset_manager(
         help="Enter a name for the current filter settings"
     )
 
-    if st.sidebar.button("Save Current Filters", key="save_preset", use_container_width=True):
+    if st.sidebar.button("Save Current Filters", key="save_preset", width="stretch"):
         name = st.session_state.get("new_preset_name", "").strip()
         if name:
             if save_preset(
