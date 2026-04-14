@@ -16,15 +16,14 @@
 
 from dataclasses import dataclass
 
-from PySide6.QtWidgets import QLabel, QWidget
-from PySide6.QtCore import Qt, QEvent, QTimer
-from PySide6.QtGui import QCursor, QKeySequence, QShortcut
+from PySide6.QtWidgets import QLabel
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QKeySequence, QShortcut
 from qfluentwidgets import (
     FluentWindow,
     FluentIcon as FIF,
     InfoBar,
     InfoBarPosition,
-    NavigationDisplayMode,
     setTheme, Theme  # 테마 설정 추가
 )
 from ui.styles import UIStyles  # 프리미엄 스타일 임포트
@@ -37,6 +36,7 @@ from ui.controllers import (
     SaveController,
     DhrSettingsSyncController,
 )
+from ui.sidebar_hover_controller import SidebarHoverController
 from typing import Callable, Tuple
 
 from models.data_manager import DataManager
@@ -81,15 +81,7 @@ class MainWindow(FluentWindow):
 
         self.services = self._create_services()
         self.data_manager = self.services.data_manager
-        self._sidebar_hover_expand_enabled = bool(config.sidebar_hover_expand)
-        self._nav_hover_expanded = False
-        self._nav_hover_collapse_timer = QTimer(self)
-        self._nav_hover_collapse_timer.setSingleShot(True)
-        self._nav_hover_collapse_timer.setInterval(200)
-        self._nav_hover_collapse_timer.timeout.connect(self._collapse_navigation_after_hover)
-        self._nav_hover_poll_timer = QTimer(self)
-        self._nav_hover_poll_timer.setInterval(120)
-        self._nav_hover_poll_timer.timeout.connect(self._poll_sidebar_hover_state)
+        self.sidebar_hover_controller = SidebarHoverController(self)
         # self.worker_name = None # WorkInfoPanel에서 관리됨
 
         self._init_ui()
@@ -119,162 +111,17 @@ class MainWindow(FluentWindow):
         QApplication.quit()
 
     def is_sidebar_hover_expand_enabled(self) -> bool:
-        return bool(self._sidebar_hover_expand_enabled)
+        return self.sidebar_hover_controller.is_enabled()
 
     def _set_sidebar_hover_expand_enabled(self, enabled: bool, persist: bool = True) -> None:
-        enabled = bool(enabled)
-        self._sidebar_hover_expand_enabled = enabled
-        if persist:
-            config.save_sidebar_hover_expand(enabled)
-
-        if not enabled:
-            self._nav_hover_collapse_timer.stop()
-            self._nav_hover_poll_timer.stop()
-            if self._nav_hover_expanded:
-                self._collapse_navigation_after_hover(force=True)
-        elif hasattr(self, "navigationInterface"):
-            self._nav_hover_poll_timer.start()
+        self.sidebar_hover_controller.set_enabled(enabled, persist=persist)
 
     def _init_sidebar_hover_behavior(self) -> None:
-        nav = getattr(self, "navigationInterface", None)
-        if nav is None:
-            return
-
-        nav.setCollapsible(True)
-        panel = getattr(nav, "panel", None)
-        hover_widgets = [nav]
-        if panel is not None:
-            hover_widgets.append(panel)
-            hover_widgets.extend(panel.findChildren(QWidget))
-
-        # Install on all sidebar descendants because mouse enter/leave is often
-        # received by internal scroll/viewport widgets instead of the panel.
-        self._nav_hover_filter_widgets = []
-        seen = set()
-        for widget in hover_widgets:
-            if widget is None:
-                continue
-            key = id(widget)
-            if key in seen:
-                continue
-            seen.add(key)
-            widget.installEventFilter(self)
-            self._nav_hover_filter_widgets.append(widget)
-
-        if self._sidebar_hover_expand_enabled:
-            self._nav_hover_poll_timer.start()
+        self.sidebar_hover_controller.init_behavior()
 
     def eventFilter(self, obj, e):
-        nav = getattr(self, "navigationInterface", None)
-        panel = getattr(nav, "panel", None) if nav else None
-        hover_widgets = getattr(self, "_nav_hover_filter_widgets", ())
-
-        if obj in hover_widgets or obj in (nav, panel):
-            et = e.type()
-            if et == QEvent.Enter:
-                self._on_sidebar_hover_enter()
-            elif et == QEvent.Leave:
-                self._on_sidebar_hover_leave()
-
+        self.sidebar_hover_controller.handle_filter_event(obj, e)
         return super().eventFilter(obj, e)
-
-    def _on_sidebar_hover_enter(self) -> None:
-        if not self._sidebar_hover_expand_enabled:
-            return
-
-        self._nav_hover_collapse_timer.stop()
-
-        nav = getattr(self, "navigationInterface", None)
-        panel = getattr(nav, "panel", None) if nav else None
-        if nav is None or panel is None:
-            return
-
-        # `displayMode` can be unreliable for hover checks in some runtime states
-        # (e.g. AUTO/MENU transitions). Treat a narrow panel as visually collapsed.
-        is_visually_collapsed = (
-            panel.width() <= 60
-            or panel.displayMode in (NavigationDisplayMode.COMPACT, NavigationDisplayMode.MINIMAL)
-        )
-        if not is_visually_collapsed:
-            return
-
-        try:
-            nav.expand()
-            self._nav_hover_expanded = True
-        except Exception as e:
-            logger.debug(f"sidebar hover expand skipped: {e}")
-
-    def _on_sidebar_hover_leave(self) -> None:
-        if not self._sidebar_hover_expand_enabled or not self._nav_hover_expanded:
-            return
-        # Polling runs every 120ms; restarting a 220ms single-shot timer on every
-        # tick prevents timeout from ever firing. Start only once per leave phase.
-        if not self._nav_hover_collapse_timer.isActive():
-            self._nav_hover_collapse_timer.start()
-
-    def _is_cursor_in_sidebar(self) -> bool:
-        nav = getattr(self, "navigationInterface", None)
-        panel = getattr(nav, "panel", None) if nav else None
-        if nav is None or panel is None:
-            return False
-
-        # Prefer Qt's hover state on actual descendants. This avoids global
-        # coordinate mismatches and catches scroll/viewport children.
-        hover_widgets = getattr(self, "_nav_hover_filter_widgets", ())
-        for widget in hover_widgets:
-            if widget is None or not widget.isVisible():
-                continue
-            try:
-                if widget.underMouse():
-                    return True
-            except RuntimeError:
-                # Widget can be deleted during shutdown/tab rebuild.
-                continue
-
-        global_pos = QCursor.pos()
-        try:
-            if panel.isVisible() and panel.rect().contains(panel.mapFromGlobal(global_pos)):
-                return True
-        except RuntimeError:
-            pass
-
-        try:
-            if nav.isVisible() and nav.rect().contains(nav.mapFromGlobal(global_pos)):
-                return True
-        except RuntimeError:
-            pass
-
-        return False
-
-    def _poll_sidebar_hover_state(self) -> None:
-        if not self._sidebar_hover_expand_enabled or not self.isVisible():
-            return
-
-        if self._is_cursor_in_sidebar():
-            self._on_sidebar_hover_enter()
-        elif self._nav_hover_expanded:
-            self._on_sidebar_hover_leave()
-
-    def _collapse_navigation_after_hover(self, force: bool = False) -> None:
-        if not self._nav_hover_expanded:
-            return
-
-        nav = getattr(self, "navigationInterface", None)
-        panel = getattr(nav, "panel", None) if nav else None
-        if nav is None or panel is None:
-            self._nav_hover_expanded = False
-            return
-
-        if not force and self._is_cursor_in_sidebar():
-            return
-
-        if panel.displayMode in (NavigationDisplayMode.EXPAND, NavigationDisplayMode.MENU):
-            try:
-                panel.collapse()
-            except Exception as e:
-                logger.debug(f"sidebar hover collapse skipped: {e}")
-
-        self._nav_hover_expanded = False
 
     # ─────────────── InfoBar 알림 헬퍼 ───────────────
     def show_success(self, title: str, content: str, duration: int = 2000):
