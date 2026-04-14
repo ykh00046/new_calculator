@@ -21,14 +21,13 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
 from qfluentwidgets import (
     FluentWindow,
-    FluentIcon as FIF,
     InfoBar,
     InfoBarPosition,
     setTheme, Theme  # 테마 설정 추가
 )
 from ui.styles import UIStyles  # 프리미엄 스타일 임포트
 from ui.components import center_window
-from ui.builders import build_action_page, build_mixing_page, build_settings_page
+from ui.builders import register_sidebar_interfaces
 from ui.controllers import (
     RecipeController,
     PanelSignalBinder,
@@ -52,9 +51,6 @@ from ui.panels.work_info_panel import WorkInfoPanel
 from ui.panels.recipe_panel import RecipePanel
 from ui.panels.material_table_panel import MaterialTablePanel
 from ui.dialogs.pdf_signature_settings_dialog import PdfSignatureSettingsDialog
-from ui.panels.manual_input_interface import ManualInputInterface
-from ui.panels.recipe_management_interface import RecipeManagementInterface
-from ui.panels.bulk_creation_interface import BulkCreationInterface
 
 
 @dataclass
@@ -192,65 +188,8 @@ class MainWindow(FluentWindow):
 
     def _create_central_widget(self):
         """중앙 위젯 생성"""
-        # 1. 패널 객체 생성 (시그널 연결 전에)
         self._create_panels()
-
-        # 2. 배합 페이지 (메인 작업 화면 - 첫 화면)
-        mixing, self.mixing_page_refs = build_mixing_page(self)
-        self.mixing_status_bar = self.mixing_page_refs.status_bar
-        self.addSubInterface(mixing, FIF.MIX_VOLUMES, "배합")
-
-        # 3. 수기 입력 (Manual Input)
-        self.manual_interface = ManualInputInterface(
-            self,
-            dhr_db=self.services.dhr_db,
-            lot_manager=self.services.lot_manager,
-        )
-        self.addSubInterface(self.manual_interface, FIF.EDIT, "수기 입력")
-
-        # 4. 일괄 생성 (Bulk)
-        self.bulk_interface = BulkCreationInterface(
-            self,
-            dhr_db=self.services.dhr_db,
-            lot_manager=self.services.lot_manager,
-        )
-        self.addSubInterface(self.bulk_interface, FIF.PASTE, "일괄 생성")
-
-        # 5. DHR 관리 (Recipe Management)
-        self.recipe_interface = RecipeManagementInterface(
-            self,
-            dhr_db=self.services.dhr_db,
-        )
-        self.addSubInterface(self.recipe_interface, FIF.LIBRARY, "DHR 관리")
-
-        # 5-1. DHR 설정 패널 상태 동기화 (메인/수기/일괄)
-        self._setup_dhr_settings_sync()
-
-        # 6. 기록 조회
-        records_page = build_action_page(
-            "기록 조회",
-            "저장된 배합 기록을 검색하고 출력합니다.",
-            "기록 조회 열기",
-            self._open_records,
-            "RecordsPage",
-        )
-        self.addSubInterface(records_page, FIF.HISTORY, "기록 조회")
-
-        # 7. 설정 페이지
-        settings = build_settings_page(self)
-        self.addSubInterface(settings, FIF.SETTING, "설정")
-
-        # 8. 작업자 변경
-        worker_page = build_action_page(
-            "작업자 변경",
-            "현재 작업자를 변경합니다.",
-            "작업자 변경",
-            self._request_worker_and_refresh,
-            "WorkerPage",
-        )
-        self.addSubInterface(worker_page, FIF.PEOPLE, "작업자 변경")
-
-        # 시그널 연결
+        register_sidebar_interfaces(self)
         self._connect_panel_signals()
 
     def _create_panels(self):

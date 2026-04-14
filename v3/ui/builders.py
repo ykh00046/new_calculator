@@ -10,6 +10,8 @@ from qfluentwidgets import (
     LargeTitleLabel,
 )
 
+from qfluentwidgets import FluentIcon as FIF
+
 from ui.components import StatusBar, StyledButton
 from ui.styles import UITheme
 
@@ -171,3 +173,68 @@ def create_panel_card(title: str, widget: QWidget) -> QFrame:
 
 
 # setup_bottom_buttons 제거: 저장 버튼은 상단 카드 우측에 배치
+
+
+def register_sidebar_interfaces(window) -> None:
+    """MainWindow의 사이드바 서브 인터페이스 8종을 등록합니다.
+
+    호출 전 `window._create_panels()`가 완료되어 있어야 하며,
+    이 함수는 DHR 3-way sync도 함께 초기화합니다.
+    """
+    from ui.panels.manual_input_interface import ManualInputInterface
+    from ui.panels.recipe_management_interface import RecipeManagementInterface
+    from ui.panels.bulk_creation_interface import BulkCreationInterface
+
+    # 1. 배합 페이지 (메인 작업 화면)
+    mixing, window.mixing_page_refs = build_mixing_page(window)
+    window.mixing_status_bar = window.mixing_page_refs.status_bar
+    window.addSubInterface(mixing, FIF.MIX_VOLUMES, "배합")
+
+    # 2. 수기 입력
+    window.manual_interface = ManualInputInterface(
+        window,
+        dhr_db=window.services.dhr_db,
+        lot_manager=window.services.lot_manager,
+    )
+    window.addSubInterface(window.manual_interface, FIF.EDIT, "수기 입력")
+
+    # 3. 일괄 생성
+    window.bulk_interface = BulkCreationInterface(
+        window,
+        dhr_db=window.services.dhr_db,
+        lot_manager=window.services.lot_manager,
+    )
+    window.addSubInterface(window.bulk_interface, FIF.PASTE, "일괄 생성")
+
+    # 4. DHR 관리
+    window.recipe_interface = RecipeManagementInterface(
+        window,
+        dhr_db=window.services.dhr_db,
+    )
+    window.addSubInterface(window.recipe_interface, FIF.LIBRARY, "DHR 관리")
+
+    # 4-1. DHR 설정 3-way sync (Manual/Bulk 생성 직후)
+    window._setup_dhr_settings_sync()
+
+    # 5. 기록 조회
+    records_page = build_action_page(
+        "기록 조회",
+        "저장된 배합 기록을 검색하고 출력합니다.",
+        "기록 조회 열기",
+        window._open_records,
+        "RecordsPage",
+    )
+    window.addSubInterface(records_page, FIF.HISTORY, "기록 조회")
+
+    # 6. 설정 페이지
+    window.addSubInterface(build_settings_page(window), FIF.SETTING, "설정")
+
+    # 7. 작업자 변경
+    worker_page = build_action_page(
+        "작업자 변경",
+        "현재 작업자를 변경합니다.",
+        "작업자 변경",
+        window._request_worker_and_refresh,
+        "WorkerPage",
+    )
+    window.addSubInterface(worker_page, FIF.PEOPLE, "작업자 변경")
