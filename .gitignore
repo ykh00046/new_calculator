@@ -38,9 +38,14 @@ v3/logs/
 v3/config/google_sheets_settings.json
 v3/config/config.json
 
-# bkit internal
-docs/.bkit-memory.json
-docs/.pdca-status.json
+# bkit internal (root docs/ is bkit runtime state, not project docs)
+/docs/
+/.agents/
+/skills/
+
+# scratch review files
+.tmp_*
+.tmp_review/
 
 # Exports
 *.pdf
