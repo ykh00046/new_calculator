@@ -3,13 +3,12 @@ DHR 관리 인터페이스 (사이드바 메뉴용)
 기존 DHRManualWindow를 메인 윈도우 패널로 전환 및 기능 통합
 """
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
+    QWidget, QVBoxLayout, QHBoxLayout, QLabel,
     QTableWidgetItem, QHeaderView,
-    QMessageBox, QTabWidget, QApplication, QScrollArea, QDialog
+    QMessageBox, QTabWidget, QScrollArea, QDialog
 )
-from PySide6.QtCore import Qt, QDate, QTime, QSize
-from PySide6.QtGui import QColor, QKeySequence
-from datetime import datetime, timedelta
+from PySide6.QtCore import Qt, QDate, QTime
+from PySide6.QtGui import QColor
 from models.lot_manager import LotManager
 from config.settings import LOT_FILE
 
@@ -17,30 +16,27 @@ from ui.components import StyledButton, create_group_box, center_window
 from ui.styles import UIStyles, UITheme
 from ui.panels.scan_effects_panel import ScanEffectsPanel
 from ui.panels.signature_panel import SignaturePanel
-from ui.widgets.pasteable_table import BasePasteableTableWidget, PasteableTableWidget, PasteableSimpleTableWidget
+from ui.widgets.pasteable_table import PasteableTableWidget
 from config.config_manager import config
 from utils.logger import logger
-from utils.bulk_helpers import parse_date_cell, parse_bulk_entries, get_materials_from_table
 from models.dhr_database import DhrDatabaseManager
-from models.dhr_bulk_generator import DhrBulkGenerator
 from qfluentwidgets import (
-    CardWidget, LineEdit, DoubleSpinBox, DateEdit, TimeEdit,
-    CheckBox, FluentIcon as FIF, InfoBar
+    CardWidget, LineEdit, DoubleSpinBox, DateEdit, TimeEdit, CheckBox
 )
 
 
 class ManualInputInterface(QScrollArea):
     """수기 배합일지 작성 패널"""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, dhr_db=None, lot_manager=None):
         super().__init__(parent)
         self.setWidgetResizable(True)
         self.setObjectName("ManualInputInterface")
         self.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
         
         # 데이터 관리자
-        self.dhr_db = DhrDatabaseManager()
-        self.lot_manager = LotManager(LOT_FILE)
+        self.dhr_db = dhr_db or DhrDatabaseManager()
+        self.lot_manager = lot_manager or LotManager(LOT_FILE)
         
         self._init_ui()
         self._connect_signals()
@@ -138,52 +134,6 @@ class ManualInputInterface(QScrollArea):
         
         root.addLayout(top_layout)
 
-
-        # 일괄 생성 입력 (Ctrl+V)
-        bulk_group = CardWidget()
-        bulk_container = QVBoxLayout(bulk_group)
-        bulk_container.setContentsMargins(16, 12, 16, 12)
-        bulk_layout = QVBoxLayout()
-
-        guide_label = QLabel("입력 형식: 작업일자(YYYY-MM-DD 또는 엑셀 날짜) / 배합량(g)")
-        guide_label.setStyleSheet(f"color: {UITheme.TEXT_SECONDARY}; font-size: 13px;")
-        bulk_layout.addWidget(guide_label)
-
-
-        self.bulk_table = PasteableSimpleTableWidget()
-        self.bulk_table.setColumnCount(2)
-        self.bulk_table.setHorizontalHeaderLabels(["작업일자", "배합량(g)"])
-        self.bulk_table.setRowCount(1)
-        bulk_header = self.bulk_table.horizontalHeader()
-        bulk_header.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        bulk_header.setSectionResizeMode(1, QHeaderView.Stretch)
-        
-        # 스타일 적용
-        self.bulk_table.setStyleSheet(UIStyles.get_table_style())
-        self.bulk_table.setAlternatingRowColors(True)
-        self.bulk_table.verticalHeader().setVisible(False)
-
-        bulk_layout.addWidget(self.bulk_table)
-
-        bulk_btn_layout = QHBoxLayout()
-        bulk_add_btn = StyledButton("행 추가")
-        bulk_add_btn.clicked.connect(self._add_bulk_row)
-        bulk_btn_layout.addWidget(bulk_add_btn)
-
-        bulk_remove_btn = StyledButton("행 삭제")
-        bulk_remove_btn.clicked.connect(self._remove_bulk_row)
-        bulk_btn_layout.addWidget(bulk_remove_btn)
-
-        bulk_btn_layout.addStretch()
-
-        bulk_generate_btn = StyledButton("일괄 생성", "success")
-        bulk_generate_btn.clicked.connect(self._bulk_create)
-        bulk_btn_layout.addWidget(bulk_generate_btn)
-
-        bulk_layout.addLayout(bulk_btn_layout)
-        bulk_container.addLayout(bulk_layout)
-        root.addWidget(bulk_group)
-
         # 중앙: 탭 위젯 (설정)
         tabs = QTabWidget()
         
@@ -278,78 +228,21 @@ class ManualInputInterface(QScrollArea):
         # 초기 LOT 생성
         self._update_product_lot()
 
-    def _add_bulk_row(self):
-        row = self.bulk_table.rowCount()
-        self.bulk_table.insertRow(row)
-        for c in range(self.bulk_table.columnCount()):
-            self.bulk_table.setItem(row, c, QTableWidgetItem(""))
-
-    def _remove_bulk_row(self):
-        row = self.bulk_table.currentRow()
-        if row >= 0:
-            self.bulk_table.removeRow(row)
-        elif self.bulk_table.rowCount() > 0:
-            self.bulk_table.removeRow(self.bulk_table.rowCount() - 1)
-
-    def _parse_date_cell(self, value: str) -> str:
-        return parse_date_cell(value)
-
-    def _parse_bulk_entries(self):
-        return parse_bulk_entries(self.bulk_table)
-
-    def _get_materials_for_bulk(self):
-        return get_materials_from_table(self.table)
-
-        if not materials:
-            raise ValueError("자재를 하나 이상 입력하세요. (하단 자재 목록)")
-
-        return materials
-
-    def _bulk_create(self):
-        product_name = self.product_name_edit.text().strip()
-        if not product_name:
-            QMessageBox.warning(self, "입력 오류", "레시피를 먼저 선택하세요.")
-            return
-
-        try:
-            entries = self._parse_bulk_entries()
-            materials = self._get_materials_for_bulk()
-        except ValueError as e:
-            QMessageBox.warning(self, "입력 오류", str(e))
-            return
-
-        if not entries:
-            QMessageBox.warning(self, "입력 오류", "일괄 생성할 데이터가 없습니다.")
-            return
-
-        include_time = self.chk_include_time.isChecked()
-        generator = DhrBulkGenerator(self.dhr_db, self.lot_manager)
-
-        try:
-            count = generator.generate(
-                entries=entries,
-                product_name=product_name,
-                materials=materials,
-                worker=self.worker_name,
-                include_time=include_time,
-                scan_effects=self.scan_effects_panel.get_data(),
-                signature_options=self.signature_panel.get_data(),
-                export=True
-            )
-            QMessageBox.information(self, "완료", f"일괄 생성이 완료되었습니다. (총 {count}건)")
-        except Exception as e:
-            logger.error(f"DHR 일괄 생성 실패: {e}")
-            QMessageBox.critical(self, "오류", f"일괄 생성 중 오류가 발생했습니다.\n{e}")
-
     def _update_product_lot(self):
         """제품 LOT 자동 생성 (제품명 + YYMMDD)"""
         product_name = self.product_name_edit.text().strip()
         date = self.date_edit.date()
-        
-        if product_name:
+        if not product_name:
+            self.product_lot_edit.clear()
+            return
+
+        work_date = date.toString("yyyy-MM-dd")
+        try:
+            lot = self.dhr_db.generate_product_lot(product_name, work_date)
+        except Exception:
             date_str = date.toString("yyMMdd")
             lot = f"{product_name}{date_str}"
-            self.product_lot_edit.setText(lot)
+        self.product_lot_edit.setText(lot)
 
     def _add_row(self):
         """행 추가"""
@@ -370,6 +263,16 @@ class ManualInputInterface(QScrollArea):
             self.table.removeRow(row)
         elif self.table.rowCount() > 0:
             self.table.removeRow(self.table.rowCount() - 1)
+
+    def _table_text(self, row: int, col: int) -> str:
+        item = self.table.item(row, col)
+        return item.text().strip() if item else ""
+
+    def _is_empty_material_row(self, row: int) -> bool:
+        return all(not self._table_text(row, col) for col in range(6))
+
+    def _get_effective_material_row_count(self) -> int:
+        return sum(0 if self._is_empty_material_row(row) else 1 for row in range(self.table.rowCount()))
 
     def _recalc_theory(self):
         """이론계량 재계산"""
@@ -397,85 +300,94 @@ class ManualInputInterface(QScrollArea):
             self.amount_spin.setFocus()
             return False
         
-        if self.table.rowCount() == 0:
+        if self._get_effective_material_row_count() == 0:
             QMessageBox.warning(self, "입력 오류", "자재를 최소 1개 이상 입력하세요.")
             return False
         
         return True
 
     def _save_and_export(self):
-        """저장 및 엑셀/PDF 출력"""
+        """Save DHR record and export Excel/PDF."""
         if not self._validate():
             return
-        
-        # 이론계량 재계산
+
         self._recalc_theory()
-        
-        # 데이터 수집
         data = self._collect_data()
-        
+
+        details_data = []
+        for row in range(self.table.rowCount()):
+            if self._is_empty_material_row(row):
+                continue
+            material_code = self._table_text(row, 0) or f"ITEM_{row+1}"
+            details_data.append({
+                "material_code": material_code,
+                "material_name": self._table_text(row, 1),
+                "material_lot": self._table_text(row, 5),
+                "ratio": self._to_float(self._table_text(row, 2)),
+                "theory_amount": self._to_float(self._table_text(row, 3)),
+                "actual_amount": self._to_float(self._table_text(row, 4)),
+            })
+
         try:
-            # 1. DB에 기록 저장
+            saved_lot = self.dhr_db.generate_product_lot(data["product_name"], data["work_date"])
             record_data = {
-                'product_lot': data['product_lot'],
-                'product_name': data['product_name'],
-                'worker': self.worker_name,
-                'work_date': data['work_date'],
-                'work_time': data['work_time'] if data['include_time'] else '',
-                'total_amount': data['amount'],
-                'scale': config.default_scale
+                "product_lot": saved_lot,
+                "product_name": data["product_name"],
+                "worker": self.worker_name,
+                "work_date": data["work_date"],
+                "work_time": data["work_time"] if data["include_time"] else "",
+                "total_amount": data["amount"],
+                "scale": config.default_scale,
             }
-            
-            details_data = []
-            for name, mat in data['materials'].items():
-                details_data.append({
-                    'material_code': mat.get('품목코드', ''),
-                    'material_name': mat.get('품목명', ''),
-                    'material_lot': mat.get('LOT', ''),
-                    'ratio': mat.get('배합비율', 0),
-                    'theory_amount': mat.get('이론계량', 0),
-                    'actual_amount': mat.get('실제배합', 0)
-                })
-            
             self.dhr_db.save_dhr_record(record_data, details_data)
-            logger.info(f"DHR 기록 DB 저장 완료: {data['product_lot']}")
-            
-            # 2. 엑셀/PDF 생성
+            data["product_lot"] = saved_lot
+            self.product_lot_edit.setText(saved_lot)
+            logger.info(f"DHR record saved: {saved_lot}")
+        except Exception as e:
+            logger.error(f"DHR DB save failed: {e}")
+            QMessageBox.critical(self, "Error", f"DB save failed.\n{e}")
+            return
+
+        try:
             from models.excel_exporter import ExcelExporter
             import os
 
             exporter = ExcelExporter()
-
-            # 엑셀 생성
             export_data = {
-                'product_lot': data['product_lot'],
-                'recipe_name': data['product_name'],
-                'work_date': data['work_date'],
-                'work_time': data['work_time'] if data['include_time'] else '',
-                'worker': self.worker_name,
-                'total_amount': data['amount'],
-                'materials': data['materials'],
-                'scale': config.default_scale,
+                "product_lot": data["product_lot"],
+                "recipe_name": data["product_name"],
+                "work_date": data["work_date"],
+                "work_time": data["work_time"] if data["include_time"] else "",
+                "worker": self.worker_name,
+                "total_amount": data["amount"],
+                "materials": details_data,
+                "scale": config.default_scale,
             }
-            excel_path = exporter.export_to_excel(export_data, include_work_time=data['include_time'])
+            excel_path = exporter.export_to_excel(export_data, include_work_time=data["include_time"])
+            if not excel_path:
+                raise RuntimeError("Excel export failed")
 
-            if excel_path:
-                # PDF 생성
-                effects_params = self.scan_effects_panel.get_data()
-                pdf_path = exporter.export_to_pdf(excel_path, effects_params)
+            effects_params = self.scan_effects_panel.get_data()
+            pdf_path = exporter.export_to_pdf(excel_path, effects_params)
 
-                msg = f"저장 완료!\n\n엑셀: {os.path.basename(excel_path)}"
-                if pdf_path:
-                    msg += f"\nPDF: {os.path.basename(pdf_path)}"
-
-                QMessageBox.information(self, "완료", msg)
-                logger.info(f"DHR 수동 저장 완료: {data['product_name']}")
+            msg = f"Saved.\n\nLOT: {data['product_lot']}\nExcel: {os.path.basename(excel_path)}"
+            if pdf_path:
+                msg += f"\nPDF: {os.path.basename(pdf_path)}"
+                QMessageBox.information(self, "Done", msg)
             else:
-                QMessageBox.critical(self, "오류", "엑셀 파일 생성에 실패했습니다.")
-                
+                QMessageBox.warning(
+                    self,
+                    "Partial Success",
+                    f"DB save succeeded but PDF export failed.\n\nLOT: {data['product_lot']}\nExcel: {os.path.basename(excel_path)}",
+                )
+            logger.info(f"DHR export finished: {data['product_name']}")
         except Exception as e:
-            logger.error(f"DHR 저장 실패: {e}")
-            QMessageBox.critical(self, "오류", f"저장 중 오류 발생:\n{str(e)}")
+            logger.error(f"DHR export failed after DB save: {e}")
+            QMessageBox.warning(
+                self,
+                "Partial Success",
+                f"DB save succeeded but export failed.\n\nLOT: {data['product_lot']}\n{e}",
+            )
 
     def _open_record_view(self):
         """DHR 기록 조회 다이얼로그 열기"""
@@ -490,6 +402,9 @@ class ManualInputInterface(QScrollArea):
         materials = {}
         
         for row in range(self.table.rowCount()):
+            if self._is_empty_material_row(row):
+                continue
+
             code = self.table.item(row, 0).text() if self.table.item(row, 0) else ""
             if not code.strip():
                 code = f"ITEM_{row+1}"
