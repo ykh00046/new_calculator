@@ -15,6 +15,7 @@
 | [mainwindow_loc_reduction.design.md](./2026-04/mainwindow_loc_reduction/mainwindow_loc_reduction.design.md) | 02-design/ | 2026-04-14 | PDCA #7 완료 (MainWindow 675→291 LOC) |
 | [mainwindow_loc_reduction_phase2.plan.md](./2026-04/mainwindow_loc_reduction_phase2/mainwindow_loc_reduction_phase2.plan.md) | 01-plan/features/ | 2026-04-14 | PDCA #7c~#7f Phase 2 계획 완료 |
 | [pdca_cycle_07_mainwindow_loc_reduction.report.md](./2026-04/pdca_cycle_07_mainwindow_loc_reduction/pdca_cycle_07_mainwindow_loc_reduction.report.md) | 04-report/features/ | 2026-04-14 | PDCA #7a~#7f 통합 보고서 (Match Rate 94%) |
+| [dhr_bulk_generation.*](./2026-04/dhr_bulk_generation/) | 01~04/features/ | 2026-04-14 | DHR 일괄 생성 PDCA 전체 사이클 완료 |
 
 ## Note
 

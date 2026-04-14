@@ -2,6 +2,15 @@
 
 > 2026년 4월 아카이브 문서 목록
 
+## DHR Bulk Generation (완료)
+
+| 문서 | 원래 위치 | 단계 |
+| --- | --- | --- |
+| [dhr_bulk_generation.plan.md](./dhr_bulk_generation/dhr_bulk_generation.plan.md) | 01-plan/features/ | Plan |
+| [dhr_bulk_generation.design.md](./dhr_bulk_generation/dhr_bulk_generation.design.md) | 02-design/features/ | Design |
+| [dhr_bulk_generation.analysis.md](./dhr_bulk_generation/dhr_bulk_generation.analysis.md) | 03-analysis/features/ | Analysis |
+| [dhr_bulk_generation.report.md](./dhr_bulk_generation/dhr_bulk_generation.report.md) | 04-report/features/ | Report |
+
 ## PDCA #7 (MainWindow LOC Reduction)
 
 | 문서 | 원래 위치 | 단계 |
