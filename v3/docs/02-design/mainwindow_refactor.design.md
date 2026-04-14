@@ -201,7 +201,13 @@ v3/ui/
 
 **Rationale**: 작업자가 마지막 자재 입력 후 저장 버튼을 놓치는 실수를 방지한다. 저장 가능 상태(`isEnabled`) 조건 하에서만 실행되므로 불완전 저장 위험은 없다.
 
-### 7.3 Known Gap: LOC Target
+### 7.3 LOC Target — Resolved in PDCA #7
 
-- 7.1/7.2 동작 추가로 `MainWindow`는 300 LOC 목표 미달성 상태(~675 LOC).
-- 후속 리팩토링: `DhrSettingsSyncController` 추출을 별도 PDCA 사이클에서 진행 예정.
+- 당초: 7.1/7.2 동작 추가로 `MainWindow`는 300 LOC 목표 미달성 상태(~675 LOC).
+- **해소**: PDCA #7 (#7a~#7f)에서 6회 하위 사이클로 **291 LOC** 달성 (-57%).
+- 추출된 컨트롤러/모듈:
+  - `DhrSettingsSyncController` (`ui/controllers.py`) — PDCA #7b
+  - `SidebarHoverController` (`ui/sidebar_hover_controller.py`) — PDCA #7c
+  - `register_sidebar_interfaces`, `setup_statusbar` (`ui/builders.py`) — PDCA #7d/#7f
+  - `notifications` 모듈 (`ui/notifications.py`) — PDCA #7e
+- 참조: `mainwindow_loc_reduction.design.md`, `docs/04-report/features/pdca_cycle_07_mainwindow_loc_reduction.report.md`.
