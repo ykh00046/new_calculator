@@ -10,6 +10,7 @@ class DhrBulkGenerator:
     def __init__(self, dhr_db, lot_manager):
         self.dhr_db = dhr_db
         self.lot_manager = lot_manager
+        self.last_export_failures: List[str] = []
 
     def _validate_material_lots_for_date(self, work_date: str, materials: List[Dict]):
         missing = []
@@ -47,6 +48,7 @@ class DhrBulkGenerator:
 
     def generate(self, entries: List[Dict], product_name: str, materials: List[Dict], worker: str,
                  include_time: bool, scan_effects: Dict, signature_options: Dict, export: bool = True) -> int:
+        self.last_export_failures = []
         if not entries:
             return 0
 
@@ -107,59 +109,93 @@ class DhrBulkGenerator:
             }
 
             self.dhr_db.save_dhr_record(record_data, details_data)
+            product_lot = record_data.get("product_lot", product_lot)
 
             if export:
-                from models.excel_exporter import ExcelExporter
-                from models.image_processor import ImageProcessor
-                import os
-
-                exporter = ExcelExporter()
-
-                base_dir = os.path.dirname(os.path.dirname(__file__))
-                resources_path = os.path.join(base_dir, "resources", "signature")
-                base_image_path = os.path.join(resources_path, "image.jpeg")
-
-                signature_cfg = config.get("signature", {})
-                if signature_options:
-                    signature_cfg["include"] = signature_options
-
-                img_processor = ImageProcessor(resources_path=resources_path, config=signature_cfg)
-                signed_image_path = os.path.join(base_dir, "resources", f"temp_signed_{worker}.png")
-
-                image_to_embed = None
-                if os.path.exists(base_image_path):
-                    success, _ = img_processor.create_signed_image(
-                        base_image_path, signed_image_path, worker
-                    )
-                    image_to_embed = signed_image_path if success else base_image_path
-
-                export_data = {
-                    "product_lot": product_lot,
-                    "recipe_name": product_name,
-                    "worker": worker,
-                    "work_date": work_date,
-                    "work_time": work_time if include_time else "",
-                    "total_amount": amount,
-                    "scale": config.default_scale,
-                    "materials": details_data,
-                }
-
-                excel_path = exporter.export_to_excel(
-                    export_data,
-                    include_image=bool(image_to_embed),
-                    image_path=image_to_embed,
-                    include_work_time=include_time,
+                self._export_record(
+                    product_lot=product_lot,
+                    product_name=product_name,
+                    worker=worker,
+                    work_date=work_date,
+                    work_time=work_time,
+                    include_time=include_time,
+                    amount=amount,
+                    details_data=details_data,
+                    scan_effects=scan_effects,
+                    signature_options=signature_options,
                 )
-
-                if excel_path:
-                    exporter.export_to_pdf(excel_path, scan_effects or {})
-
-                if image_to_embed == signed_image_path and os.path.exists(signed_image_path):
-                    try:
-                        os.remove(signed_image_path)
-                    except Exception:
-                        pass
 
             success_count += 1
 
         return success_count
+
+    def _export_record(
+        self,
+        product_lot: str,
+        product_name: str,
+        worker: str,
+        work_date: str,
+        work_time: str,
+        include_time: bool,
+        amount: float,
+        details_data: List[Dict],
+        scan_effects: Dict,
+        signature_options: Dict,
+    ) -> None:
+        from models.excel_exporter import ExcelExporter
+        from models.image_processor import ImageProcessor
+        import os
+
+        signed_image_path = None
+        image_to_embed = None
+        try:
+            exporter = ExcelExporter()
+
+            base_dir = os.path.dirname(os.path.dirname(__file__))
+            resources_path = os.path.join(base_dir, "resources", "signature")
+            base_image_path = os.path.join(resources_path, "image.jpeg")
+
+            signature_cfg = config.get("signature", {})
+            if signature_options:
+                signature_cfg["include"] = signature_options
+
+            img_processor = ImageProcessor(resources_path=resources_path, config=signature_cfg)
+            signed_image_path = os.path.join(base_dir, "resources", f"temp_signed_{worker}.png")
+
+            if os.path.exists(base_image_path):
+                success, _ = img_processor.create_signed_image(base_image_path, signed_image_path, worker)
+                image_to_embed = signed_image_path if success else base_image_path
+
+            export_data = {
+                "product_lot": product_lot,
+                "recipe_name": product_name,
+                "worker": worker,
+                "work_date": work_date,
+                "work_time": work_time if include_time else "",
+                "total_amount": amount,
+                "scale": config.default_scale,
+                "materials": details_data,
+            }
+
+            excel_path = exporter.export_to_excel(
+                export_data,
+                include_image=bool(image_to_embed),
+                image_path=image_to_embed,
+                include_work_time=include_time,
+            )
+            if not excel_path:
+                raise RuntimeError("Excel export failed")
+
+            pdf_path = exporter.export_to_pdf(excel_path, scan_effects or {})
+            if not pdf_path:
+                raise RuntimeError("PDF export failed")
+        except Exception as e:
+            msg = f"{product_lot}: {e}"
+            self.last_export_failures.append(msg)
+            logger.warning(f"DHR bulk export skipped after DB save ({msg})")
+        finally:
+            if image_to_embed == signed_image_path and signed_image_path and os.path.exists(signed_image_path):
+                try:
+                    os.remove(signed_image_path)
+                except Exception:
+                    pass

@@ -8,6 +8,7 @@ JSON file is missing or malformed by falling back to safe defaults.
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import hmac
 import json
@@ -56,6 +57,8 @@ class Config:
                     node = node[part]
                 else:
                     return default
+            if isinstance(node, (dict, list)):
+                return copy.deepcopy(node)
             return node
         except Exception as e:
             _logger.warning(f"설정값 조회 실패 ({dotted_key}): {e}")
@@ -126,6 +129,22 @@ class Config:
             return self._save_config()
         except Exception as e:
             _logger.warning(f"마지막 작업자 저장 실패: {e}")
+            return False
+
+    @property
+    def sidebar_hover_expand(self) -> bool:
+        """Return whether sidebar hover auto-expand is enabled."""
+        return bool(self.get("ui.sidebar_hover_expand", False))
+
+    def save_sidebar_hover_expand(self, enabled: bool) -> bool:
+        """Save sidebar hover auto-expand setting."""
+        try:
+            if "ui" not in self._data or not isinstance(self._data.get("ui"), dict):
+                self._data["ui"] = {}
+            self._data["ui"]["sidebar_hover_expand"] = bool(enabled)
+            return self._save_config()
+        except Exception as e:
+            _logger.warning(f"sidebar hover expand save failed: {e}")
             return False
 
     def _get_admin_password(self) -> str:

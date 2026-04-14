@@ -138,34 +138,85 @@ class DhrDatabaseManager:
             conn.execute("CREATE INDEX IF NOT EXISTS idx_dhr_records_lot ON dhr_records(product_lot)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_dhr_recipes_name ON dhr_recipes(recipe_name)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_dhr_categories_type ON dhr_recipe_categories(category_type)")
+            self._try_create_unique_lot_index(conn)
             
             conn.commit()
             logger.debug("DHR 데이터베이스 테이블 생성/확인 완료")
+
+    def _try_create_unique_lot_index(self, conn) -> None:
+        """Create a unique LOT index when existing data has no duplicates."""
+        try:
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_dhr_records_product_lot ON dhr_records(product_lot)"
+            )
+        except sqlite3.IntegrityError:
+            cursor = conn.execute(
+                """
+                SELECT product_lot, COUNT(*) AS cnt
+                FROM dhr_records
+                GROUP BY product_lot
+                HAVING COUNT(*) > 1
+                LIMIT 1
+                """
+            )
+            dup = cursor.fetchone()
+            if dup:
+                logger.warning(
+                    f"DHR product_lot duplicates found; unique index skipped (sample={dup['product_lot']}, count={dup['cnt']})"
+                )
+            else:
+                logger.warning("DHR product_lot unique index creation skipped due to duplicates")
+
+    def _generate_product_lot_with_conn(self, conn, product_name: str, work_date: str) -> str:
+        target_date = datetime.strptime(work_date, "%Y-%m-%d")
+        date_str = target_date.strftime("%y%m%d")
+        base_lot = f"{product_name}{date_str}"
+        cursor = conn.execute(
+            "SELECT product_lot FROM dhr_records WHERE work_date = ? AND product_name = ?",
+            (work_date, product_name),
+        )
+        max_seq = 0
+        for row in cursor.fetchall():
+            lot = row["product_lot"]
+            if not lot.startswith(base_lot):
+                continue
+            try:
+                seq = int(lot[len(base_lot):])
+            except (ValueError, IndexError):
+                continue
+            if seq > max_seq:
+                max_seq = seq
+        return f"{base_lot}{max_seq + 1:02d}"
+
+    def _resolve_unique_product_lot(self, conn, record_data: Dict) -> str:
+        requested_lot = str(record_data.get("product_lot", "")).strip()
+        if requested_lot:
+            cursor = conn.execute(
+                "SELECT 1 FROM dhr_records WHERE product_lot = ? LIMIT 1",
+                (requested_lot,),
+            )
+            if cursor.fetchone() is None:
+                return requested_lot
+            logger.warning(f"Duplicate DHR product_lot detected; regenerating ({requested_lot})")
+
+        product_name = str(record_data.get("product_name", "")).strip()
+        work_date = str(record_data.get("work_date", "")).strip()
+        if not product_name or not work_date:
+            raise ValueError("product_name and work_date are required to generate a unique DHR LOT")
+        return self._generate_product_lot_with_conn(conn, product_name, work_date)
     
     @handle_exceptions(user_message="DHR 기록 저장 중 오류가 발생했습니다.")
     def generate_product_lot(self, product_name: str, work_date: str) -> str:
-        """DHR 제품별로 신규 LOT 번호를 생성합니다. (예: {product_name}{YYMMDD}{seq:02d})"""
+        """DHR product LOT generator ({product_name}{YYMMDD}{seq:02d})."""
         target_date = datetime.strptime(work_date, "%Y-%m-%d")
         date_str = target_date.strftime("%y%m%d")
         base_lot = f"{product_name}{date_str}"
 
         try:
             with self.get_connection() as conn:
-                cursor = conn.execute("SELECT product_lot FROM dhr_records WHERE work_date = ? AND product_name = ?", (work_date, product_name))
-                max_seq = 0
-                for row in cursor.fetchall():
-                    lot = row['product_lot']
-                    if lot.startswith(base_lot):
-                        try:
-                            seq = int(lot[len(base_lot):])
-                            if seq > max_seq:
-                                max_seq = seq
-                        except (ValueError, IndexError):
-                            continue
-                new_seq = max_seq + 1
-                return f"{base_lot}{new_seq:02d}"
+                return self._generate_product_lot_with_conn(conn, product_name, work_date)
         except Exception as e:
-            logger.error(f"DHR LOT 번호 생성 실패: {e}. 기본값으로 대체합니다.")
+            logger.error(f"DHR LOT 생성 중 오류: {e}. 기본 LOT를 사용합니다.")
             return f"{base_lot}01"
 
     def save_dhr_record(self, record_data: Dict, details: List[Dict]) -> int:
@@ -180,13 +231,15 @@ class DhrDatabaseManager:
             저장된 레코드의 ID
         """
         with self.get_connection() as conn:
+            resolved_lot = self._resolve_unique_product_lot(conn, record_data)
+            record_data["product_lot"] = resolved_lot
             # 기본 기록 저장
             cursor = conn.execute("""
                 INSERT INTO dhr_records 
                 (product_lot, product_name, worker, work_date, work_time, total_amount, scale)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
             """, (
-                record_data['product_lot'],
+                resolved_lot,
                 record_data.get('product_name', ''),
                 record_data['worker'],
                 record_data['work_date'],

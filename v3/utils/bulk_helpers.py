@@ -96,10 +96,15 @@ def get_materials_from_table(table) -> List[Dict]:
         if not code:
             raise ValueError(f"자재 {r+1}행: 품목코드를 입력하세요.")
 
+        ratio_text = ratio_item.text().strip() if ratio_item else ""
+        if not ratio_text:
+            raise ValueError(f"자재 {r+1}행: 배합비율을 입력하세요.")
         try:
-            ratio = float(ratio_item.text()) if ratio_item else 0.0
+            ratio = float(ratio_text)
         except ValueError:
-            ratio = 0.0
+            raise ValueError(f"자재 {r+1}행: 배합비율은 숫자로 입력하세요.")
+        if ratio <= 0:
+            raise ValueError(f"자재 {r+1}행: 배합비율은 0보다 커야 합니다.")
 
         materials.append({"code": code, "name": name, "ratio": ratio})
 
