@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 from typing import Tuple
 
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFrame, QSizePolicy
+from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel, QSizePolicy
 from PySide6.QtCore import Qt
 from qfluentwidgets import (
     CardWidget,
@@ -12,7 +12,9 @@ from qfluentwidgets import (
 
 from qfluentwidgets import FluentIcon as FIF
 
+from config.config_manager import config
 from ui.components import StatusBar, StyledButton
+from ui.controllers import StatusController
 from ui.styles import UITheme
 
 
@@ -238,3 +240,19 @@ def register_sidebar_interfaces(window) -> None:
         "WorkerPage",
     )
     window.addSubInterface(worker_page, FIF.PEOPLE, "작업자 변경")
+
+
+def setup_statusbar(window) -> None:
+    """상태바 + Google Sheets 백업 라벨 + StatusController를 초기화합니다."""
+    tol = config.tolerance
+    scale = config.default_scale
+    window._set_status_message(f"기본 스케일: {scale} | 허용오차: ±{tol}")
+
+    window.google_sheets_status_label = QLabel("")
+    window.mixing_status_bar.addPermanentWidget(window.google_sheets_status_label)
+    window.google_sheets_status_label.setStyleSheet("padding: 0 5px;")
+    window.status_controller = StatusController(
+        status_bar=window.mixing_status_bar,
+        google_sheets_label=window.google_sheets_status_label,
+        google_sheets_config=window.data_manager.google_sheets_config,
+    )

@@ -1,22 +1,7 @@
-"""
-
-메인 윈도우
-
-기존 파일이 손상되어 최소 기능으로 재구성했습니다.
-
- - 작업자 선택 다이얼로그
-
- - 기록 조회 다이얼로그 열기
-
- - 상태바에 정보 표시(스케일/허용오차)
-
-필요 시 이후 단계에서 원래 기능을 확장 복원할 수 있습니다.
-
-"""
+"""메인 윈도우 — 패널/컨트롤러 조정자."""
 
 from dataclasses import dataclass
 
-from PySide6.QtWidgets import QLabel
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
 from qfluentwidgets import (
@@ -25,12 +10,11 @@ from qfluentwidgets import (
 )
 from ui.styles import UIStyles  # 프리미엄 스타일 임포트
 from ui.components import center_window
-from ui.builders import register_sidebar_interfaces
+from ui.builders import register_sidebar_interfaces, setup_statusbar
 from ui import notifications
 from ui.controllers import (
     RecipeController,
     PanelSignalBinder,
-    StatusController,
     SaveController,
     DhrSettingsSyncController,
 )
@@ -80,7 +64,7 @@ class MainWindow(FluentWindow):
 
         self._init_ui()
         self._setup_shortcuts()
-        self._load_recipes()
+        self.recipe_controller.load_recipes()
         
         # 작업자 선택 - 취소 시 앱 종료
         worker = self.work_info_panel.request_worker_input(initial=True)
@@ -127,7 +111,7 @@ class MainWindow(FluentWindow):
         
         self._create_central_widget()
         self._init_sidebar_hover_behavior()
-        self._setup_statusbar()
+        setup_statusbar(self)
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -201,7 +185,7 @@ class MainWindow(FluentWindow):
         """패널 간 시그널 연결"""
         binder = PanelSignalBinder(self.recipe_panel, self.work_info_panel, self.material_panel)
         binder.bind({
-            "on_recipe_changed": self._on_recipe_changed,
+            "on_recipe_changed": self.recipe_controller.on_recipe_changed,
             "on_amount_changed": self._recalc_theory,
             "on_amount_confirmed": lambda: self.material_panel.focus_first_cell(),
             "on_amount_check_failed": self.recipe_panel.focus_amount,
@@ -216,23 +200,6 @@ class MainWindow(FluentWindow):
             return
         self._save_record()
     
-    def _setup_statusbar(self):
-        """상태바 초기화"""
-        tol = config.tolerance
-        scale = config.default_scale
-        self._set_status_message(f"기본 스케일: {scale} | 허용오차: ±{tol}")
-        
-        self.google_sheets_status_label = QLabel("")
-        self.mixing_status_bar.addPermanentWidget(self.google_sheets_status_label)
-        self.google_sheets_status_label.setStyleSheet("padding: 0 5px;")
-        self.status_controller = StatusController(
-            status_bar=self.mixing_status_bar,
-            google_sheets_label=self.google_sheets_status_label,
-            google_sheets_config=self.data_manager.google_sheets_config,
-        )
-
-
-
     def _update_backup_status(self):
         """Google Sheets 백업 상태를 업데이트합니다."""
         self.status_controller.update_backup_status()
@@ -269,28 +236,17 @@ class MainWindow(FluentWindow):
         except Exception as e:
             logger.log_error_with_context(e, {"context": "open_records"})
 
-    def _load_recipes(self):
-        """레시피 목록 로드"""
-        self.recipe_controller.load_recipes()
-
-    def _on_recipe_changed(self, recipe_name: str):
-        self.recipe_controller.on_recipe_changed(recipe_name)
-
     def _after_recipe_loaded(self) -> None:
         self._recalc_theory()
         self._update_actions_enabled(False)
 
     def _recalc_theory(self):
-        """배합량 변경시 이론 계량값을 재계산"""
         amount = self.recipe_panel.get_amount()
         self.material_panel.update_theory(amount)
 
     def _update_actions_enabled(self, valid: bool):
-        self._set_save_button_state(valid)
-
-    def _set_save_button_state(self, enabled: bool) -> None:
         save_btn = self.mixing_page_refs.save_btn
-        save_btn.setEnabled(enabled)
+        save_btn.setEnabled(bool(valid))
         save_btn.setText("배합 저장")
         save_btn.setStyleSheet(UIStyles.get_primary_button_style())
 
