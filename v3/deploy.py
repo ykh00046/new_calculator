@@ -1,5 +1,7 @@
 """
-DHR Generator 배포 패키지 생성 스크립트
+DHR Generator 배포 패키지 생성 스크립트.
+
+배포 계약은 프로젝트 루트 DEPLOY_GUIDE.md를 기준으로 유지합니다.
 """
 import os
 import shutil
@@ -48,11 +50,13 @@ def create_deployment_package():
     
     # 4. 문서 파일 복사
     print("\n[4/5] 문서 파일 복사 중...")
-    docs = ["../README.md", "../DEPLOY_GUIDE.md"]
+    docs = ["../README.md", "../DEPLOY_GUIDE.md", "../RELEASE_SMOKE_CHECKLIST.md"]
     for doc in docs:
         if os.path.exists(doc):
             shutil.copy(doc, package_name)
             print(f"[OK] {doc} → {package_name}/")
+        else:
+            print(f"[WARNING] 문서 파일이 없어 건너뜀: {doc}")
     
     # 5. 압축
     print("\n[5/5] 압축 파일 생성 중...")
@@ -79,7 +83,8 @@ def create_deployment_package():
     print(f"압축 크기: {zip_size:.1f} MB")
     print(f"\n배포 방법:")
     print(f"1. {zip_name} 파일을 대상 PC에 전달")
-    print(f"2. 압축 해제 후 DHR_Generator.exe 실행")
+    print(f"2. 압축 해제 후 DHR_Generator.exe와 resources/를 같은 폴더 구조로 유지")
+    print(f"3. DEPLOY_GUIDE.md의 사용자 실행 절차에 따라 DHR_Generator.exe 실행")
     
     return True
 

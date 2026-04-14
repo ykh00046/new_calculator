@@ -1,6 +1,6 @@
 """
 DHR Generator 실행 파일 빌드 스크립트
-PyInstaller를 사용하여 단일 실행 파일을 생성합니다.
+PyInstaller를 사용하여 배포 기준 실행 파일을 생성합니다.
 """
 import os
 import sys
@@ -80,10 +80,10 @@ def build_exe():
         print("빌드 완료!")
         print("=" * 60)
         print(f"\n실행 파일 위치: {os.path.abspath(exe_path)}")
-        print("\n배포 방법:")
-        print("1. dist/DHR_Generator.exe 파일을 대상 PC에 복사")
-        print("2. resources/ 폴더를 exe 파일과 같은 위치에 복사")
-        print("3. DHR_Generator.exe 실행")
+        print("\n다음 단계:")
+        print("1. deploy.py를 실행해 배포 패키지를 생성")
+        print("2. 배포 계약은 루트 DEPLOY_GUIDE.md 문서를 기준으로 확인")
+        print("3. 단일 exe 전달이 아니라 exe와 resources가 함께 포함된 패키지를 배포")
         
         return True
     else:

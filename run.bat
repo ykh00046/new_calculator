@@ -1,4 +1,4 @@
 @echo off
-cd /d "%~dp0v3"
-python main.py
-pause
+set "ROOT_DIR=%~dp0"
+
+call "%ROOT_DIR%run_dev.bat"
