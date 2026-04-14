@@ -21,13 +21,12 @@ from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
 from qfluentwidgets import (
     FluentWindow,
-    InfoBar,
-    InfoBarPosition,
     setTheme, Theme  # 테마 설정 추가
 )
 from ui.styles import UIStyles  # 프리미엄 스타일 임포트
 from ui.components import center_window
 from ui.builders import register_sidebar_interfaces
+from ui import notifications
 from ui.controllers import (
     RecipeController,
     PanelSignalBinder,
@@ -36,7 +35,7 @@ from ui.controllers import (
     DhrSettingsSyncController,
 )
 from ui.sidebar_hover_controller import SidebarHoverController
-from typing import Callable, Tuple
+from typing import Tuple
 
 from models.data_manager import DataManager
 from models.dhr_database import DhrDatabaseManager
@@ -50,7 +49,6 @@ from ui.panels.signature_panel import SignaturePanel
 from ui.panels.work_info_panel import WorkInfoPanel
 from ui.panels.recipe_panel import RecipePanel
 from ui.panels.material_table_panel import MaterialTablePanel
-from ui.dialogs.pdf_signature_settings_dialog import PdfSignatureSettingsDialog
 
 
 @dataclass
@@ -118,47 +116,6 @@ class MainWindow(FluentWindow):
     def eventFilter(self, obj, e):
         self.sidebar_hover_controller.handle_filter_event(obj, e)
         return super().eventFilter(obj, e)
-
-    # ─────────────── InfoBar 알림 헬퍼 ───────────────
-    def show_success(self, title: str, content: str, duration: int = 2000):
-        """성공 토스트 알림"""
-        InfoBar.success(
-            title=title,
-            content=content,
-            parent=self,
-            position=InfoBarPosition.TOP_RIGHT,
-            duration=duration
-        )
-    
-    def show_warning(self, title: str, content: str, duration: int = 3000):
-        """경고 토스트 알림"""
-        InfoBar.warning(
-            title=title,
-            content=content,
-            parent=self,
-            position=InfoBarPosition.TOP_RIGHT,
-            duration=duration
-        )
-    
-    def show_error(self, title: str, content: str, duration: int = 4000):
-        """에러 토스트 알림"""
-        InfoBar.error(
-            title=title,
-            content=content,
-            parent=self,
-            position=InfoBarPosition.TOP_RIGHT,
-            duration=duration
-        )
-    
-    def show_info(self, title: str, content: str, duration: int = 2500):
-        """정보 토스트 알림"""
-        InfoBar.info(
-            title=title,
-            content=content,
-            parent=self,
-            position=InfoBarPosition.TOP_RIGHT,
-            duration=duration
-        )
 
     def _init_ui(self):
         """UI 초기화 - 리팩토링된 구조"""
@@ -276,16 +233,6 @@ class MainWindow(FluentWindow):
 
 
 
-    def _open_google_sheets_settings(self):
-        """Google Sheets 설정 다이얼로그를 엽니다."""
-        def _action():
-            from ui.dialogs.google_sheets_settings_dialog import GoogleSheetsSettingsDialog
-            dlg = GoogleSheetsSettingsDialog(self)
-            dlg.settings_updated.connect(self._update_backup_status)  # 설정 변경 시 상태 업데이트
-            dlg.exec()
-
-        self._run_dialog_action("open_google_sheets_settings", _action)
-        
     def _update_backup_status(self):
         """Google Sheets 백업 상태를 업데이트합니다."""
         self.status_controller.update_backup_status()
@@ -315,34 +262,12 @@ class MainWindow(FluentWindow):
         self._set_status_message("자동 LOT 배정 완료")
 
     def _open_records(self):
-        def _action():
+        try:
             effects_params = self.scan_effects_panel.get_data()
             dlg = RecordViewDialog(self.data_manager, effects_params, self)
             dlg.exec()
-
-        self._run_dialog_action("open_records", _action)
-
-    def _open_pdf_settings(self):
-        """PDF/서명 설정 다이얼로그 열기"""
-        def _action():
-            if hasattr(self, '_pdf_settings_dialog') and self._pdf_settings_dialog.isVisible():
-                self._pdf_settings_dialog.raise_()
-                self._pdf_settings_dialog.activateWindow()
-                return
-
-            self._pdf_settings_dialog = PdfSignatureSettingsDialog(
-                self.scan_effects_panel,
-                self.signature_panel,
-                self
-            )
-            self._pdf_settings_dialog.show()
-        self._run_dialog_action("open_pdf_settings", _action)
-
-    def _run_dialog_action(self, context: str, action: Callable[[], None]) -> None:
-        try:
-            action()
         except Exception as e:
-            logger.log_error_with_context(e, {"context": context})
+            logger.log_error_with_context(e, {"context": "open_records"})
 
     def _load_recipes(self):
         """레시피 목록 로드"""
@@ -390,14 +315,14 @@ class MainWindow(FluentWindow):
 
     def _handle_save_validation_error(self, error_msg: str) -> None:
         self._set_status_message(error_msg)
-        self.show_warning("입력 오류", error_msg)
+        notifications.show_warning(self,"입력 오류", error_msg)
 
     def _handle_save_success(self, lot: str) -> None:
         self._set_status_message(
             f"배합 저장 (DB/백업): LOT {lot} | 엑셀/PDF 출력은 '기록 조회' 화면을 이용하세요."
         )
         logger.info(f"배합 완료: LOT {lot}")
-        self.show_success("저장 완료", f"LOT: {lot} 저장이 완료되었습니다.")
+        notifications.show_success(self,"저장 완료", f"LOT: {lot} 저장이 완료되었습니다.")
         self.material_panel.clear_table()
         reset_mode = config.get("ui.save_reset_mode", "safe")
         if reset_mode == "safe":
@@ -407,4 +332,4 @@ class MainWindow(FluentWindow):
     def _handle_save_error(self, error: Exception) -> None:
         logger.log_error_with_context(error, {"context": "save_record"})
         self._set_status_message("저장 중 오류가 발생했습니다.")
-        self.show_error("저장 실패", f"저장 중 오류가 발생했습니다: {error}")
+        notifications.show_error(self,"저장 실패", f"저장 중 오류가 발생했습니다: {error}")
