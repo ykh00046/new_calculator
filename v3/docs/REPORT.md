@@ -1,5 +1,7 @@
 # 배합 프로그램 개발 완료 보고서
 
+> 이 문서는 당시 개발 완료 시점의 스냅샷입니다. 현재 운영 경로, 현재 테스트 게이트, 현재 배포 기준은 `v3/docs/README.md`, `v3/docs/SETUP.md`, 루트 `README.md`를 우선 참조합니다.
+
 **작업 일자**: 2025년 11월 16일
 **프로젝트**: 원료 배합 관리 시스템 v3.0
 **상태**: ✅ 모든 작업 완료
@@ -220,7 +222,7 @@ APB25111604.xlsx      →  APB25111604.pdf ✅
 
 **백업 위치**:
 ```
-C:\X\PythonProject\PythonProject3-program\
+C:\X\Program-estimation\
 ├── backup_20251116_182538/          # 폴더 백업
 └── backup_20251116_182538.zip       # ZIP 압축 백업
 ```
@@ -284,7 +286,7 @@ INFO | 저장/출력 완료
 
 ### 1. 프로그램 시작
 ```bash
-cd C:\X\PythonProject\PythonProject3-program\v3\main
+cd C:\X\Program-estimation\v3
 python main.py
 ```
 
@@ -334,7 +336,7 @@ v3/main/
 
 ### 백업
 ```
-PythonProject3-program/
+Program-estimation/
 ├── backup_20251116_182538/      # 폴더 백업
 └── backup_20251116_182538.zip   # ZIP 백업
 ```

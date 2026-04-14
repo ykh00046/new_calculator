@@ -1,260 +1,100 @@
-# 배합 프로그램 개선 버전
+# Program-estimation v3 문서 개요
 
-## 🚀 개선 사항 요약
+`v3/`는 Windows 데스크톱 배합 프로그램의 현재 개발/운영 기준 디렉터리입니다. 이 문서는 운영자와 개발자가 먼저 봐야 하는 최신 안내만 정리합니다.
 
-이 프로젝트는 기존의 제조업 원료 배합 관리 시스템을 **대폭 개선**한 버전입니다.
+## 기준 경로와 이름
 
-### ✨ 주요 개선점
+- 저장소 루트: `C:\X\Program-estimation`
+- 애플리케이션 루트: `C:\X\Program-estimation\v3`
+- 개발 실행 진입점: `v3/main.py`
+- 배포 실행 파일: `v3/dist/DHR_Generator.exe`
 
-#### 1. **로깅 시스템 강화**
-- **통합 로깅**: 모든 작업에 대한 체계적인 로그 관리
-- **일별 로테이션**: 자동 로그 파일 분할 및 보관
-- **레벨별 분리**: DEBUG, INFO, WARNING, ERROR, CRITICAL
-- **배합 전용 로그**: 배합 작업 특화 로깅
+과거 문서에 남아 있는 `PythonProject3-program`, `PythonProject1-stock` 같은 명칭은 현재 기준 경로가 아닙니다.
 
-```python
-from utils.logger import logger
+## 우선 참조 문서
 
-# 배합 작업 로그
-logger.log_mixing_operation("배합시작", "레시피A", "작업자1", 
-                           batch_size=100, lot="LOT001")
+- 환경 준비: [`SETUP.md`](./SETUP.md)
+- 배포 절차: [`../../DEPLOY_GUIDE.md`](../../DEPLOY_GUIDE.md)
+- 릴리스 스모크 체크: [`../../RELEASE_SMOKE_CHECKLIST.md`](../../RELEASE_SMOKE_CHECKLIST.md)
+- 완료/개선 보고서: `04-report/` 하위 문서
 
-# 일반 로그
-logger.info("프로그램 시작")
-logger.error("데이터베이스 연결 실패")
+`04-report/` 문서는 당시 작업 결과를 남긴 보고서입니다. 현재 실행 경로, 현재 테스트 수, 현재 릴리스 게이트는 이 문서와 `SETUP.md`, 루트 `README.md`를 우선 기준으로 삼습니다.
+
+## 실행
+
+```powershell
+cd C:\X\Program-estimation\v3
+..\.venv\Scripts\python.exe .\main.py
 ```
 
-#### 2. **강화된 예외 처리**
-- **커스텀 예외**: 도메인별 특화 예외 클래스
-- **데코레이터 패턴**: 자동 예외 처리 및 로깅
-- **사용자 친화적**: 기술적 오류를 이해하기 쉬운 메시지로 변환
-- **유효성 검사**: 배합비율, 파일, 레시피 데이터 검증
+루트 `run_dev.bat`는 개발용 런처입니다. 호환성용 `run.bat`는 내부적으로 `run_dev.bat`를 호출합니다.
 
-```python
-from utils.error_handler import handle_exceptions, validate_mixing_ratio
+## 개발 환경 기준
 
-@handle_exceptions(user_message="배합 작업 중 오류가 발생했습니다.")
-def perform_mixing():
-    # 배합 로직
-    validate_mixing_ratio(actual=49.95, theory=50.0, tolerance=0.05)
+- 운영체제: Windows
+- 권장 Python: `3.13.x`
+- GUI 필수 패키지: `PySide6`, `PySide6-Fluent-Widgets`
+- 테스트/유틸 패키지: `pytest`, `pytest-mock`, `pytest-timeout`
+
+체크인된 `.venv/`는 패키지 구성이 항상 완전하다고 가정하지 않습니다. 새 환경에서는 `v3/requirements.txt` 재설치를 기본 절차로 사용합니다.
+
+```powershell
+cd C:\X\Program-estimation
+.\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\.venv\Scripts\python.exe -m pip install -r .\v3\requirements.txt
 ```
 
-#### 3. **SQLite 데이터베이스 통합**
-- **관계형 데이터**: 레시피, 배합기록, 상세정보 정규화
-- **트랜잭션**: 데이터 일관성 보장
-- **인덱싱**: 빠른 검색 성능
-- **백업 자동화**: 정기적 데이터 백업
+전체 부트스트랩과 설정 경로는 [`SETUP.md`](./SETUP.md)에 정리되어 있습니다.
 
-```python
-from models.database import DatabaseManager
+## 테스트 기준
 
-db = DatabaseManager()
-record_id = db.save_mixing_record(record_data, details)
-records = db.get_mixing_records(start_date="2024-01-01")
+빠른 검증:
+
+```powershell
+cd C:\X\Program-estimation\v3
+..\.venv\Scripts\python.exe -m pytest tests/unit/test_config_manager.py -q
 ```
 
-#### 4. **JSON 기반 설정 관리**
-- **환경별 설정**: 개발/운영 환경 분리
-- **런타임 변경**: 재시작 없이 설정 업데이트
-- **타입 안전성**: 설정값 검증 및 기본값 제공
-- **중앙화**: 모든 설정의 통합 관리
+기본 회귀 검증:
 
-```json
-{
-  "mixing": {
-    "tolerance": 0.05,
-    "default_scale": "M-65"
-  },
-  "ui": {
-    "themes": {
-      "primary_color": "#2E7D32"
-    }
-  }
-}
+```powershell
+cd C:\X\Program-estimation\v3
+..\.venv\Scripts\python.exe .\tests\run_tests.py
 ```
 
-#### 5. **모듈화된 UI 컴포넌트**
-- **재사용성**: 공통 UI 요소 컴포넌트화
-- **일관성**: 통일된 스타일 시스템
-- **반응형**: 다양한 화면 크기 대응
-- **접근성**: 사용자 친화적 인터페이스
+해석 기준:
 
-```python
-from ui.components import StyledButton, FormField, DataTableWidget
+- 기본 게이트는 `tests/run_tests.py`가 종료 코드 `0`으로 끝나는지 여부입니다.
+- GUI 의존성이 빠진 환경에서는 `tests/unit/test_panels.py`가 `skip`될 수 있습니다.
+- 릴리스 전에는 `PySide6`, `qfluentwidgets`가 모두 설치된 환경에서 전체 스위트를 다시 확인해야 합니다.
 
-# 스타일이 적용된 버튼
-save_btn = StyledButton("저장", "primary")
-cancel_btn = StyledButton("취소", "secondary")
+현재 테스트 총 개수나 커버리지 수치는 코드/테스트 추가에 따라 변할 수 있으므로, 문서에 고정 수치로 관리하지 않습니다.
 
-# 폼 필드
-worker_field = FormField("작업자", QLineEdit(), required=True)
-```
+## 설정 파일 위치
 
-#### 6. **포괄적인 단위 테스트**
-- **테스트 커버리지**: 핵심 기능 100% 테스트
-- **자동화**: CI/CD 파이프라인 지원
-- **문서화**: 각 기능의 사용법 예제
-- **품질 보증**: 리팩토링 안전성 확보
+앱은 아래 순서로 `config.json`을 찾습니다.
 
-```bash
-# 모든 테스트 실행
-python tests/run_tests.py
+1. `%LOCALAPPDATA%\MixingProgram\config\config.json`
+2. `%MIXING_APP_DATA_DIR%\config\config.json`
+3. `v3/config/config.json`
 
-# 특정 모듈 테스트
-python tests/run_tests.py --module test_data_manager
+즉, `v3/config/config.json`만 수정한다고 항상 실제 실행 설정이 바뀌는 것은 아닙니다.
 
-# 커버리지 분석
-python tests/run_tests.py --coverage
-```
+## 배포 기준
 
----
+- 빌드 스크립트: `v3/build.py`
+- 패키지 스크립트: `v3/deploy.py`
+- 배포 ZIP 형식: `DHR_Generator_v3.0.0_YYYYMMDD.zip`
+- 사용자 실행 파일: `DHR_Generator.exe`
 
-## 📁 개선된 프로젝트 구조
+실제 배포 계약과 전달 전 확인 항목은 루트 문서를 사용합니다.
 
-```
-PythonProject3-program/
-├── main.py                     # 개선된 메인 실행 파일
-├── config/
-│   ├── settings.py            # 기존 호환 설정
-│   ├── config.json           # 📄 JSON 기반 설정
-│   └── config_manager.py     # 🆕 설정 관리자
-├── models/
-│   ├── data_manager.py       # 개선된 데이터 관리
-│   ├── database.py          # 🆕 SQLite 데이터베이스
-│   └── excel_exporter.py    # 엑셀 출력 기능
-├── ui/
-│   ├── main_window.py       # 메인 UI
-│   ├── components.py        # 🆕 재사용 UI 컴포넌트
-│   └── styles.py           # 🆕 통합 스타일 시스템
-├── utils/
-│   ├── logger.py           # 🆕 통합 로깅 시스템
-│   └── error_handler.py    # 🆕 예외 처리 유틸리티
-├── tests/                  # 🆕 단위 테스트
-│   ├── test_data_manager.py
-│   ├── test_error_handler.py
-│   ├── test_config_manager.py
-│   └── run_tests.py
-└── logs/                   # 🆕 로그 파일 저장소
-    ├── mixing_program.log
-    └── error.log
-```
+- [`README.md`](../../README.md)
+- [`DEPLOY_GUIDE.md`](../../DEPLOY_GUIDE.md)
+- [`RELEASE_SMOKE_CHECKLIST.md`](../../RELEASE_SMOKE_CHECKLIST.md)
 
----
+## 지원
 
-## 🎯 사용법
-
-### 기본 실행
-```bash
-python main.py
-```
-
-### 개발 모드 (상세 로그)
-```bash
-# config.json에서 logging.level을 DEBUG로 설정 후 실행
-python main.py
-```
-
-### 테스트 실행
-```bash
-# 모든 테스트
-python tests/run_tests.py
-
-# 특정 테스트만
-python tests/run_tests.py --module test_data_manager
-
-# 커버리지 분석
-python tests/run_tests.py --coverage
-```
-
-### 설정 변경
-`config/config.json` 파일을 편집하여 설정을 변경할 수 있습니다:
-
-```json
-{
-  "mixing": {
-    "tolerance": 0.08,           // 허용 오차 변경
-    "default_scale": "M-70"      // 기본 저울 변경
-  },
-  "ui": {
-    "themes": {
-      "default": {
-        "primary_color": "#1976D2"  // 테마 색상 변경
-      }
-    }
-  }
-}
-```
-
----
-
-## 🔧 기술 스택
-
-### 핵심 기술
-- **Python 3.x**: 메인 언어
-- **PySide6**: GUI 프레임워크
-- **SQLite**: 로컬 데이터베이스
-- **pandas**: 데이터 처리
-- **openpyxl**: Excel 파일 처리
-
-### 개선 기술
-- **unittest**: 단위 테스트 프레임워크
-- **JSON**: 설정 관리
-- **logging**: 체계적 로그 관리
-- **contextlib**: 안전한 리소스 관리
-
----
-
-## 🏆 품질 지표
-
-### 이전 버전 대비 개선
-- **코드 품질**: C+ → A- (85/100)
-- **유지보수성**: 40% 향상
-- **안정성**: 60% 향상
-- **확장성**: 80% 향상
-- **테스트 커버리지**: 0% → 85%
-
-### 성능 개선
-- **데이터 조회**: 3배 빠른 검색
-- **오류 복구**: 자동 복구 메커니즘
-- **메모리 사용**: 30% 최적화
-- **로그 분석**: 실시간 문제 진단
-
----
-
-## 📈 향후 계획
-
-### Phase 2 (예정)
-- [ ] 웹 기반 인터페이스 추가
-- [ ] REST API 제공
-- [ ] 실시간 알림 시스템
-- [ ] 데이터 분석 대시보드
-
-### Phase 3 (예정)
-- [ ] 클라우드 동기화
-- [ ] 모바일 앱 연동
-- [ ] AI 기반 배합 최적화
-- [ ] IoT 센서 통합
-
----
-
-## 🤝 기여하기
-
-1. **이슈 리포트**: 버그나 개선사항 제안
-2. **코드 리뷰**: Pull Request 검토
-3. **테스트 작성**: 새로운 기능에 대한 테스트
-4. **문서화**: 사용법이나 API 문서 개선
-
----
-
-## 📞 지원
-
-- **로그 파일**: `logs/` 디렉토리에서 문제 진단
-- **테스트**: `python tests/run_tests.py`로 시스템 상태 확인
-- **설정**: `config/config.json`에서 환경 설정
-
-**이전 버전 대비 안정성과 확장성이 크게 향상된 전문적인 제조업 품질관리 시스템입니다.**
-## 변경 사항 요약 (v3 개선)
-- 설정 관리자 추가: `config/config_manager.py`에서 `config/config.json`을 UTF-8로 로드합니다.
-- PDF 경로 일관화: PDF는 항상 출력 폴더의 `pdf/` 하위에 저장되도록 정규화했습니다.
-- Poppler 경로 외부화: `config.json`의 `excel.poppler_path`로 지정 가능하며, 미지정 시 시스템 PATH를 사용하도록 시도합니다.
-- 로깅 정비: 주요 `print` 로그를 구조화된 `utils.logger.logger` 호출로 전환했습니다.
+- 실행/설치 문제: `SETUP.md`의 import 체크와 설치 절차를 먼저 확인
+- 배포 문제: 루트 배포 가이드와 스모크 체크리스트 확인
+- 과거 구현 경과 확인: `04-report/` 하위 문서 참조
