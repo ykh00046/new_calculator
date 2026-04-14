@@ -163,3 +163,45 @@ v3/ui/
     - Lot Auto Assign -> Working correctly with date.
     - Save/Export -> Data correctness.
 3.  **Code Check**: `MainWindow` LOC should drop below 300.
+
+---
+
+## 7. Post-Refactor Additions
+
+리팩토링 이후 Mixing/Manual/Bulk 3개 패널 간 사용자 경험 일관성을 위해 다음 동작을 MainWindow가 조정한다.
+
+### 7.1 DHR UI Settings 3-Way Sync
+
+**Goal**: `scan_effects`(DPI/noise/blur/contrast/brightness)와 `signature`(결재 3종 체크박스) 설정을 3개 탭에서 실시간으로 동기화한다.
+
+**Components**:
+
+- `DhrUiSettingsState` (dataclass): 현재 활성 설정 보관
+- `MainWindow._setup_dhr_settings_sync`: 진입 시 바인딩 수행
+- `MainWindow._bind_dhr_settings_pair`: 각 `(scan_panel, signature_panel)` 쌍에 대해 valueChanged/toggled 시그널 연결
+- `MainWindow._apply_dhr_settings_to_all`: 재진입 방지 플래그(`_dhr_settings_syncing`)로 무한 루프 차단
+
+**Pairs managed**:
+
+1. `self.scan_effects_panel` + `self.signature_panel` (Mixing 탭)
+2. `manual_interface.scan_effects_panel` + `manual_interface.signature_panel`
+3. `bulk_interface.scan_effects_panel` + `bulk_interface.signature_panel`
+
+**Rationale**: 사용자가 한 탭에서 효과/서명 설정을 바꾸면 다른 탭의 입력에도 동일하게 적용되어야 한다. 탭마다 별도 입력을 허용할 경우 최종 PDF 출력 결과가 일관되지 않는다.
+
+### 7.2 Table Edit Auto-Save
+
+**Goal**: `MaterialTablePanel`의 마지막 셀 편집 완료 시 자동 저장을 트리거한다.
+
+**Implementation**:
+
+- `PanelSignalBinder`에서 `on_table_edit_finished` 콜백 등록
+- `MainWindow._handle_table_edit_finished`: `save_btn.isEnabled()` 체크 후 `_save_record()` 호출
+- Save 버튼 경로(`Ctrl+S`, 버튼 클릭)와 동일한 검증/저장 로직을 재사용 — 별도 우회 경로 금지
+
+**Rationale**: 작업자가 마지막 자재 입력 후 저장 버튼을 놓치는 실수를 방지한다. 저장 가능 상태(`isEnabled`) 조건 하에서만 실행되므로 불완전 저장 위험은 없다.
+
+### 7.3 Known Gap: LOC Target
+
+- 7.1/7.2 동작 추가로 `MainWindow`는 300 LOC 목표 미달성 상태(~675 LOC).
+- 후속 리팩토링: `DhrSettingsSyncController` 추출을 별도 PDCA 사이클에서 진행 예정.
