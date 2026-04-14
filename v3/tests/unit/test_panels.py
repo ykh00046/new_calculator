@@ -1,8 +1,29 @@
-
+import importlib
+import os
+import sys
 import unittest
 from unittest.mock import MagicMock, patch
-import sys
-import os
+
+
+def _ensure_ui_test_dependencies() -> None:
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+    missing_modules = []
+    for module_name in ("PySide6", "qfluentwidgets"):
+        try:
+            importlib.import_module(module_name)
+        except ModuleNotFoundError:
+            missing_modules.append(module_name)
+
+    if missing_modules:
+        missing_text = ", ".join(missing_modules)
+        raise unittest.SkipTest(
+            f"UI panel tests require optional GUI dependencies: {missing_text}"
+        )
+
+
+_ensure_ui_test_dependencies()
+
 from PySide6.QtWidgets import QApplication
 
 # Ensure project root is in path
