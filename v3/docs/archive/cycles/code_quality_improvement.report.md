@@ -1,5 +1,7 @@
 # 코드 품질 개선 완료 보고서
 
+> 이 문서는 작업 당시의 품질 개선 결과 스냅샷입니다. 본문에 있는 테스트 개수와 통과 수치는 현재 저장소의 고정 기준이 아니며, 현재 검증 기준은 `v3/docs/README.md`와 `v3/docs/SETUP.md`를 따릅니다.
+
 > **상태**: 완료
 >
 > **프로젝트**: 배합 프로그램 v3 (Manufacturing Batch Recipe Management System)

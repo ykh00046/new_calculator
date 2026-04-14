@@ -20,6 +20,28 @@
 | [mainwindow_loc_reduction_phase2.plan.md](./mainwindow_loc_reduction_phase2/mainwindow_loc_reduction_phase2.plan.md) | 01-plan/features/ | Plan (Phase 2) |
 | [pdca_cycle_07_mainwindow_loc_reduction.report.md](./pdca_cycle_07_mainwindow_loc_reduction/pdca_cycle_07_mainwindow_loc_reduction.report.md) | 04-report/features/ | Report |
 
+## Menu Restructure (Zero Gap)
+
+| 문서 | 단계 |
+| --- | --- |
+| [menu_restructure.plan.md](./menu_restructure/menu_restructure.plan.md) | Plan |
+| [menu_restructure.design.md](./menu_restructure/menu_restructure.design.md) | Design |
+| [menu_restructure_gap.analysis.md](./menu_restructure/menu_restructure_gap.analysis.md) | Analysis (Zero Gap) |
+| [menu_restructure_qa.checklist.md](./menu_restructure/menu_restructure_qa.checklist.md) | QA |
+
+## Mixing Improvements (사후 완료)
+
+| 문서 | 단계 |
+| --- | --- |
+| [mixing_improvements.plan.md](./mixing_improvements/mixing_improvements.plan.md) | Plan |
+| [mixing_improvements.design.md](./mixing_improvements/mixing_improvements.design.md) | Design |
+| [mixing_improvements.report.md](./mixing_improvements/mixing_improvements.report.md) | Report (retroactive) |
+
+## Orphan Docs (사후 기록)
+
+- [ui_theme_unification.plan.md](./orphan_docs/ui_theme_unification.plan.md) — UIStyles/UITheme 시스템 이미 구현됨
+- [ux_improvements.design.md](./orphan_docs/ux_improvements.design.md) — WindowStaysOnTop/focus flow 이미 구현됨
+
 ## 핵심 성과
 
 - **MainWindow LOC**: 675 → 291 (−57%, 목표 <300 달성)
