@@ -14,7 +14,7 @@
 
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from PySide6.QtWidgets import QLabel, QWidget
 from PySide6.QtCore import Qt, QEvent, QTimer
@@ -30,7 +30,13 @@ from qfluentwidgets import (
 from ui.styles import UIStyles  # 프리미엄 스타일 임포트
 from ui.components import center_window
 from ui.builders import build_action_page, build_mixing_page, build_settings_page
-from ui.controllers import RecipeController, PanelSignalBinder, StatusController, SaveController
+from ui.controllers import (
+    RecipeController,
+    PanelSignalBinder,
+    StatusController,
+    SaveController,
+    DhrSettingsSyncController,
+)
 from typing import Callable, Tuple
 
 from models.data_manager import DataManager
@@ -56,12 +62,6 @@ class AppServices:
     data_manager: DataManager
     dhr_db: DhrDatabaseManager
     lot_manager: LotManager
-
-
-@dataclass
-class DhrUiSettingsState:
-    scan_effects: dict = field(default_factory=dict)
-    signature: dict = field(default_factory=dict)
 
 
 class MainWindow(FluentWindow):
@@ -446,64 +446,13 @@ class MainWindow(FluentWindow):
 
     def _setup_dhr_settings_sync(self) -> None:
         """메인/수기/일괄 DHR 설정 패널의 값을 동기화합니다."""
-        self._dhr_settings_syncing = False
-        self._dhr_settings_pairs = [
+        pairs = [
             (self.scan_effects_panel, self.signature_panel),
             (self.manual_interface.scan_effects_panel, self.manual_interface.signature_panel),
             (self.bulk_interface.scan_effects_panel, self.bulk_interface.signature_panel),
         ]
-        self.dhr_ui_settings_state = DhrUiSettingsState(
-            scan_effects=dict(self.scan_effects_panel.get_data()),
-            signature=dict(self.signature_panel.get_data()),
-        )
-
-        for scan_panel, signature_panel in self._dhr_settings_pairs:
-            self._bind_dhr_settings_pair(scan_panel, signature_panel)
-
-        self._apply_dhr_settings_to_all()
-
-    def _bind_dhr_settings_pair(self, scan_panel, signature_panel) -> None:
-        scan_signals = (
-            scan_panel.dpi_spin.valueChanged,
-            scan_panel.noise_spin.valueChanged,
-            scan_panel.blur_spin.valueChanged,
-            scan_panel.contrast_spin.valueChanged,
-            scan_panel.brightness_spin.valueChanged,
-        )
-        for signal in scan_signals:
-            signal.connect(lambda *_args, p=scan_panel: self._on_scan_effects_panel_changed(p))
-
-        signature_signals = (
-            signature_panel.chk_charge.toggled,
-            signature_panel.chk_review.toggled,
-            signature_panel.chk_approve.toggled,
-        )
-        for signal in signature_signals:
-            signal.connect(lambda *_args, p=signature_panel: self._on_signature_panel_changed(p))
-
-    def _apply_dhr_settings_to_all(self) -> None:
-        if getattr(self, "_dhr_settings_syncing", False):
-            return
-
-        self._dhr_settings_syncing = True
-        try:
-            for scan_panel, signature_panel in self._dhr_settings_pairs:
-                scan_panel.set_data(self.dhr_ui_settings_state.scan_effects)
-                signature_panel.set_data(self.dhr_ui_settings_state.signature)
-        finally:
-            self._dhr_settings_syncing = False
-
-    def _on_scan_effects_panel_changed(self, source_panel) -> None:
-        if getattr(self, "_dhr_settings_syncing", False):
-            return
-        self.dhr_ui_settings_state.scan_effects = dict(source_panel.get_data())
-        self._apply_dhr_settings_to_all()
-
-    def _on_signature_panel_changed(self, source_panel) -> None:
-        if getattr(self, "_dhr_settings_syncing", False):
-            return
-        self.dhr_ui_settings_state.signature = dict(source_panel.get_data())
-        self._apply_dhr_settings_to_all()
+        self.dhr_settings_sync_controller = DhrSettingsSyncController(pairs)
+        self.dhr_settings_sync_controller.setup()
 
     def _connect_panel_signals(self):
         """패널 간 시그널 연결"""

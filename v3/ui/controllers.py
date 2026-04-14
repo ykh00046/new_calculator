@@ -1,6 +1,73 @@
-from typing import Callable
+from dataclasses import dataclass, field
+from typing import Callable, List, Tuple
 
 from utils.logger import logger
+
+
+@dataclass
+class DhrUiSettingsState:
+    scan_effects: dict = field(default_factory=dict)
+    signature: dict = field(default_factory=dict)
+
+
+class DhrSettingsSyncController:
+    """Mixing/Manual/Bulk 3개 탭의 DHR 설정 패널을 실시간 동기화."""
+
+    def __init__(self, pairs: List[Tuple[object, object]]) -> None:
+        self._pairs = pairs
+        self._syncing = False
+        first_scan, first_sig = pairs[0]
+        self.state = DhrUiSettingsState(
+            scan_effects=dict(first_scan.get_data()),
+            signature=dict(first_sig.get_data()),
+        )
+
+    def setup(self) -> None:
+        for scan_panel, signature_panel in self._pairs:
+            self._bind_pair(scan_panel, signature_panel)
+        self._apply_to_all()
+
+    def _bind_pair(self, scan_panel, signature_panel) -> None:
+        scan_signals = (
+            scan_panel.dpi_spin.valueChanged,
+            scan_panel.noise_spin.valueChanged,
+            scan_panel.blur_spin.valueChanged,
+            scan_panel.contrast_spin.valueChanged,
+            scan_panel.brightness_spin.valueChanged,
+        )
+        for signal in scan_signals:
+            signal.connect(lambda *_args, p=scan_panel: self._on_scan_changed(p))
+
+        signature_signals = (
+            signature_panel.chk_charge.toggled,
+            signature_panel.chk_review.toggled,
+            signature_panel.chk_approve.toggled,
+        )
+        for signal in signature_signals:
+            signal.connect(lambda *_args, p=signature_panel: self._on_sig_changed(p))
+
+    def _apply_to_all(self) -> None:
+        if self._syncing:
+            return
+        self._syncing = True
+        try:
+            for scan_panel, signature_panel in self._pairs:
+                scan_panel.set_data(self.state.scan_effects)
+                signature_panel.set_data(self.state.signature)
+        finally:
+            self._syncing = False
+
+    def _on_scan_changed(self, source_panel) -> None:
+        if self._syncing:
+            return
+        self.state.scan_effects = dict(source_panel.get_data())
+        self._apply_to_all()
+
+    def _on_sig_changed(self, source_panel) -> None:
+        if self._syncing:
+            return
+        self.state.signature = dict(source_panel.get_data())
+        self._apply_to_all()
 
 
 class RecipeController:
