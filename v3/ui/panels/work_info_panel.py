@@ -168,8 +168,8 @@ class WorkInfoPanel(QWidget):
         self.time_edit.setEnabled(False)
         time_layout.addWidget(self.time_edit)
 
-        self.chk_include_time = QCheckBox("작업시간 표시")
-        self.chk_include_time.setChecked(True)
+        self.chk_include_time = QCheckBox("작업시간 포함")
+        self.chk_include_time.setChecked(False)
         self.chk_include_time.setEnabled(True)
         time_layout.addWidget(self.chk_include_time)
 

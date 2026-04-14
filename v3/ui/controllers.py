@@ -56,7 +56,6 @@ class PanelSignalBinder:
             "on_recipe_changed",
             "on_amount_changed",
             "on_amount_confirmed",
-            "on_refresh_dashboard",
             "on_amount_check_failed",
             "on_validation_changed",
             "on_table_edit_finished",
@@ -69,9 +68,6 @@ class PanelSignalBinder:
         self.recipe_panel.recipeChanged.connect(callbacks["on_recipe_changed"])
         self.recipe_panel.amountChanged.connect(callbacks["on_amount_changed"])
         self.recipe_panel.amountConfirmed.connect(callbacks["on_amount_confirmed"])
-        self.recipe_panel.recipeChanged.connect(callbacks["on_refresh_dashboard"])
-        self.recipe_panel.amountChanged.connect(callbacks["on_refresh_dashboard"])
-        self.work_info_panel.date_edit.dateChanged.connect(callbacks["on_refresh_dashboard"])
 
         self.material_panel.amountCheckFailed.connect(callbacks["on_amount_check_failed"])
         self.material_panel.validationStatusChanged.connect(callbacks["on_validation_changed"])

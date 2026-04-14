@@ -14,23 +14,29 @@
 
 """
 
-from PySide6.QtWidgets import QLabel
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QKeySequence, QShortcut
+from dataclasses import dataclass, field
+
+from PySide6.QtWidgets import QLabel, QWidget
+from PySide6.QtCore import Qt, QEvent, QTimer
+from PySide6.QtGui import QCursor, QKeySequence, QShortcut
 from qfluentwidgets import (
     FluentWindow,
     FluentIcon as FIF,
     InfoBar,
     InfoBarPosition,
+    NavigationDisplayMode,
     setTheme, Theme  # 테마 설정 추가
 )
 from ui.styles import UIStyles  # 프리미엄 스타일 임포트
-from ui.components import StatusBar, center_window
+from ui.components import center_window
 from ui.builders import build_action_page, build_mixing_page, build_settings_page
 from ui.controllers import RecipeController, PanelSignalBinder, StatusController, SaveController
 from typing import Callable, Tuple
 
 from models.data_manager import DataManager
+from models.dhr_database import DhrDatabaseManager
+from models.lot_manager import LotManager
+from config.settings import LOT_FILE
 from ui.record_view_dialog import RecordViewDialog
 from utils.logger import logger
 from config.config_manager import config
@@ -43,6 +49,20 @@ from ui.dialogs.pdf_signature_settings_dialog import PdfSignatureSettingsDialog
 from ui.panels.manual_input_interface import ManualInputInterface
 from ui.panels.recipe_management_interface import RecipeManagementInterface
 from ui.panels.bulk_creation_interface import BulkCreationInterface
+
+
+@dataclass
+class AppServices:
+    data_manager: DataManager
+    dhr_db: DhrDatabaseManager
+    lot_manager: LotManager
+
+
+@dataclass
+class DhrUiSettingsState:
+    scan_effects: dict = field(default_factory=dict)
+    signature: dict = field(default_factory=dict)
+
 
 class MainWindow(FluentWindow):
     """애플리케이션 메인 윈도우(복구 버전)"""
@@ -59,7 +79,17 @@ class MainWindow(FluentWindow):
         if config.get("ui.window_stays_on_top", True):
             self.setWindowFlags(self.windowFlags() | Qt.WindowStaysOnTopHint)
 
-        self.data_manager = DataManager()
+        self.services = self._create_services()
+        self.data_manager = self.services.data_manager
+        self._sidebar_hover_expand_enabled = bool(config.sidebar_hover_expand)
+        self._nav_hover_expanded = False
+        self._nav_hover_collapse_timer = QTimer(self)
+        self._nav_hover_collapse_timer.setSingleShot(True)
+        self._nav_hover_collapse_timer.setInterval(200)
+        self._nav_hover_collapse_timer.timeout.connect(self._collapse_navigation_after_hover)
+        self._nav_hover_poll_timer = QTimer(self)
+        self._nav_hover_poll_timer.setInterval(120)
+        self._nav_hover_poll_timer.timeout.connect(self._poll_sidebar_hover_state)
         # self.worker_name = None # WorkInfoPanel에서 관리됨
 
         self._init_ui()
@@ -69,20 +99,182 @@ class MainWindow(FluentWindow):
         # 작업자 선택 - 취소 시 앱 종료
         worker = self.work_info_panel.request_worker_input(initial=True)
         if not worker:
-            # __init__에서는 QApplication.quit()이 바로 동작하지 않음
-            # QTimer.singleShot으로 이벤트 루프 후 종료
-            from PySide6.QtCore import QTimer
             self.hide()
             QTimer.singleShot(0, self._exit_app)
             return
-        self._refresh_dashboard()
-        
-        self._update_backup_status() # 초기 백업 상태 업데이트
+
+        self._update_backup_status()
+
+    def _create_services(self) -> AppServices:
+        """앱에서 공유하는 서비스/매니저를 한 곳에서 생성합니다."""
+        return AppServices(
+            data_manager=DataManager(),
+            dhr_db=DhrDatabaseManager(),
+            lot_manager=LotManager(LOT_FILE),
+        )
 
     def _exit_app(self):
         """앱 종료"""
         from PySide6.QtWidgets import QApplication
         QApplication.quit()
+
+    def is_sidebar_hover_expand_enabled(self) -> bool:
+        return bool(self._sidebar_hover_expand_enabled)
+
+    def _set_sidebar_hover_expand_enabled(self, enabled: bool, persist: bool = True) -> None:
+        enabled = bool(enabled)
+        self._sidebar_hover_expand_enabled = enabled
+        if persist:
+            config.save_sidebar_hover_expand(enabled)
+
+        if not enabled:
+            self._nav_hover_collapse_timer.stop()
+            self._nav_hover_poll_timer.stop()
+            if self._nav_hover_expanded:
+                self._collapse_navigation_after_hover(force=True)
+        elif hasattr(self, "navigationInterface"):
+            self._nav_hover_poll_timer.start()
+
+    def _init_sidebar_hover_behavior(self) -> None:
+        nav = getattr(self, "navigationInterface", None)
+        if nav is None:
+            return
+
+        nav.setCollapsible(True)
+        panel = getattr(nav, "panel", None)
+        hover_widgets = [nav]
+        if panel is not None:
+            hover_widgets.append(panel)
+            hover_widgets.extend(panel.findChildren(QWidget))
+
+        # Install on all sidebar descendants because mouse enter/leave is often
+        # received by internal scroll/viewport widgets instead of the panel.
+        self._nav_hover_filter_widgets = []
+        seen = set()
+        for widget in hover_widgets:
+            if widget is None:
+                continue
+            key = id(widget)
+            if key in seen:
+                continue
+            seen.add(key)
+            widget.installEventFilter(self)
+            self._nav_hover_filter_widgets.append(widget)
+
+        if self._sidebar_hover_expand_enabled:
+            self._nav_hover_poll_timer.start()
+
+    def eventFilter(self, obj, e):
+        nav = getattr(self, "navigationInterface", None)
+        panel = getattr(nav, "panel", None) if nav else None
+        hover_widgets = getattr(self, "_nav_hover_filter_widgets", ())
+
+        if obj in hover_widgets or obj in (nav, panel):
+            et = e.type()
+            if et == QEvent.Enter:
+                self._on_sidebar_hover_enter()
+            elif et == QEvent.Leave:
+                self._on_sidebar_hover_leave()
+
+        return super().eventFilter(obj, e)
+
+    def _on_sidebar_hover_enter(self) -> None:
+        if not self._sidebar_hover_expand_enabled:
+            return
+
+        self._nav_hover_collapse_timer.stop()
+
+        nav = getattr(self, "navigationInterface", None)
+        panel = getattr(nav, "panel", None) if nav else None
+        if nav is None or panel is None:
+            return
+
+        # `displayMode` can be unreliable for hover checks in some runtime states
+        # (e.g. AUTO/MENU transitions). Treat a narrow panel as visually collapsed.
+        is_visually_collapsed = (
+            panel.width() <= 60
+            or panel.displayMode in (NavigationDisplayMode.COMPACT, NavigationDisplayMode.MINIMAL)
+        )
+        if not is_visually_collapsed:
+            return
+
+        try:
+            nav.expand()
+            self._nav_hover_expanded = True
+        except Exception as e:
+            logger.debug(f"sidebar hover expand skipped: {e}")
+
+    def _on_sidebar_hover_leave(self) -> None:
+        if not self._sidebar_hover_expand_enabled or not self._nav_hover_expanded:
+            return
+        # Polling runs every 120ms; restarting a 220ms single-shot timer on every
+        # tick prevents timeout from ever firing. Start only once per leave phase.
+        if not self._nav_hover_collapse_timer.isActive():
+            self._nav_hover_collapse_timer.start()
+
+    def _is_cursor_in_sidebar(self) -> bool:
+        nav = getattr(self, "navigationInterface", None)
+        panel = getattr(nav, "panel", None) if nav else None
+        if nav is None or panel is None:
+            return False
+
+        # Prefer Qt's hover state on actual descendants. This avoids global
+        # coordinate mismatches and catches scroll/viewport children.
+        hover_widgets = getattr(self, "_nav_hover_filter_widgets", ())
+        for widget in hover_widgets:
+            if widget is None or not widget.isVisible():
+                continue
+            try:
+                if widget.underMouse():
+                    return True
+            except RuntimeError:
+                # Widget can be deleted during shutdown/tab rebuild.
+                continue
+
+        global_pos = QCursor.pos()
+        try:
+            if panel.isVisible() and panel.rect().contains(panel.mapFromGlobal(global_pos)):
+                return True
+        except RuntimeError:
+            pass
+
+        try:
+            if nav.isVisible() and nav.rect().contains(nav.mapFromGlobal(global_pos)):
+                return True
+        except RuntimeError:
+            pass
+
+        return False
+
+    def _poll_sidebar_hover_state(self) -> None:
+        if not self._sidebar_hover_expand_enabled or not self.isVisible():
+            return
+
+        if self._is_cursor_in_sidebar():
+            self._on_sidebar_hover_enter()
+        elif self._nav_hover_expanded:
+            self._on_sidebar_hover_leave()
+
+    def _collapse_navigation_after_hover(self, force: bool = False) -> None:
+        if not self._nav_hover_expanded:
+            return
+
+        nav = getattr(self, "navigationInterface", None)
+        panel = getattr(nav, "panel", None) if nav else None
+        if nav is None or panel is None:
+            self._nav_hover_expanded = False
+            return
+
+        if not force and self._is_cursor_in_sidebar():
+            return
+
+        if panel.displayMode in (NavigationDisplayMode.EXPAND, NavigationDisplayMode.MENU):
+            try:
+                panel.collapse()
+            except Exception as e:
+                logger.debug(f"sidebar hover collapse skipped: {e}")
+
+        self._nav_hover_expanded = False
 
     # ─────────────── InfoBar 알림 헬퍼 ───────────────
     def show_success(self, title: str, content: str, duration: int = 2000):
@@ -134,6 +326,7 @@ class MainWindow(FluentWindow):
         self.setStyleSheet(UIStyles.get_main_style())
         
         self._create_central_widget()
+        self._init_sidebar_hover_behavior()
         self._setup_statusbar()
 
     def showEvent(self, event):
@@ -146,7 +339,6 @@ class MainWindow(FluentWindow):
         """단축키 설정"""
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self._save_record)
         QShortcut(QKeySequence("Ctrl+R"), self).activated.connect(self._clear_table)
-        QShortcut(QKeySequence("F5"), self).activated.connect(self._refresh_dashboard)
         QShortcut(QKeySequence("Ctrl+W"), self).activated.connect(
             self._request_worker_and_refresh
         )
@@ -157,20 +349,35 @@ class MainWindow(FluentWindow):
         self._create_panels()
 
         # 2. 배합 페이지 (메인 작업 화면 - 첫 화면)
-        mixing = build_mixing_page(self)
-        self.addSubInterface(mixing, FIF.EDIT, "배합")
+        mixing, self.mixing_page_refs = build_mixing_page(self)
+        self.mixing_status_bar = self.mixing_page_refs.status_bar
+        self.addSubInterface(mixing, FIF.MIX_VOLUMES, "배합")
 
         # 3. 수기 입력 (Manual Input)
-        self.manual_interface = ManualInputInterface(self)
+        self.manual_interface = ManualInputInterface(
+            self,
+            dhr_db=self.services.dhr_db,
+            lot_manager=self.services.lot_manager,
+        )
         self.addSubInterface(self.manual_interface, FIF.EDIT, "수기 입력")
 
         # 4. 일괄 생성 (Bulk)
-        self.bulk_interface = BulkCreationInterface(self)
-        self.addSubInterface(self.bulk_interface, FIF.DOCUMENT, "일괄 생성")
+        self.bulk_interface = BulkCreationInterface(
+            self,
+            dhr_db=self.services.dhr_db,
+            lot_manager=self.services.lot_manager,
+        )
+        self.addSubInterface(self.bulk_interface, FIF.PASTE, "일괄 생성")
 
         # 5. DHR 관리 (Recipe Management)
-        self.recipe_interface = RecipeManagementInterface(self)
-        self.addSubInterface(self.recipe_interface, FIF.SETTING, "DHR 관리")
+        self.recipe_interface = RecipeManagementInterface(
+            self,
+            dhr_db=self.services.dhr_db,
+        )
+        self.addSubInterface(self.recipe_interface, FIF.LIBRARY, "DHR 관리")
+
+        # 5-1. DHR 설정 패널 상태 동기화 (메인/수기/일괄)
+        self._setup_dhr_settings_sync()
 
         # 6. 기록 조회
         records_page = build_action_page(
@@ -237,6 +444,67 @@ class MainWindow(FluentWindow):
             on_success=self._handle_save_success,
         )
 
+    def _setup_dhr_settings_sync(self) -> None:
+        """메인/수기/일괄 DHR 설정 패널의 값을 동기화합니다."""
+        self._dhr_settings_syncing = False
+        self._dhr_settings_pairs = [
+            (self.scan_effects_panel, self.signature_panel),
+            (self.manual_interface.scan_effects_panel, self.manual_interface.signature_panel),
+            (self.bulk_interface.scan_effects_panel, self.bulk_interface.signature_panel),
+        ]
+        self.dhr_ui_settings_state = DhrUiSettingsState(
+            scan_effects=dict(self.scan_effects_panel.get_data()),
+            signature=dict(self.signature_panel.get_data()),
+        )
+
+        for scan_panel, signature_panel in self._dhr_settings_pairs:
+            self._bind_dhr_settings_pair(scan_panel, signature_panel)
+
+        self._apply_dhr_settings_to_all()
+
+    def _bind_dhr_settings_pair(self, scan_panel, signature_panel) -> None:
+        scan_signals = (
+            scan_panel.dpi_spin.valueChanged,
+            scan_panel.noise_spin.valueChanged,
+            scan_panel.blur_spin.valueChanged,
+            scan_panel.contrast_spin.valueChanged,
+            scan_panel.brightness_spin.valueChanged,
+        )
+        for signal in scan_signals:
+            signal.connect(lambda *_args, p=scan_panel: self._on_scan_effects_panel_changed(p))
+
+        signature_signals = (
+            signature_panel.chk_charge.toggled,
+            signature_panel.chk_review.toggled,
+            signature_panel.chk_approve.toggled,
+        )
+        for signal in signature_signals:
+            signal.connect(lambda *_args, p=signature_panel: self._on_signature_panel_changed(p))
+
+    def _apply_dhr_settings_to_all(self) -> None:
+        if getattr(self, "_dhr_settings_syncing", False):
+            return
+
+        self._dhr_settings_syncing = True
+        try:
+            for scan_panel, signature_panel in self._dhr_settings_pairs:
+                scan_panel.set_data(self.dhr_ui_settings_state.scan_effects)
+                signature_panel.set_data(self.dhr_ui_settings_state.signature)
+        finally:
+            self._dhr_settings_syncing = False
+
+    def _on_scan_effects_panel_changed(self, source_panel) -> None:
+        if getattr(self, "_dhr_settings_syncing", False):
+            return
+        self.dhr_ui_settings_state.scan_effects = dict(source_panel.get_data())
+        self._apply_dhr_settings_to_all()
+
+    def _on_signature_panel_changed(self, source_panel) -> None:
+        if getattr(self, "_dhr_settings_syncing", False):
+            return
+        self.dhr_ui_settings_state.signature = dict(source_panel.get_data())
+        self._apply_dhr_settings_to_all()
+
     def _connect_panel_signals(self):
         """패널 간 시그널 연결"""
         binder = PanelSignalBinder(self.recipe_panel, self.work_info_panel, self.material_panel)
@@ -244,35 +512,18 @@ class MainWindow(FluentWindow):
             "on_recipe_changed": self._on_recipe_changed,
             "on_amount_changed": self._recalc_theory,
             "on_amount_confirmed": lambda: self.material_panel.focus_first_cell(),
-            "on_refresh_dashboard": self._refresh_dashboard,
             "on_amount_check_failed": self.recipe_panel.focus_amount,
             "on_validation_changed": self._update_actions_enabled,
-            "on_table_edit_finished": lambda: self.save_btn.click(),
+            "on_table_edit_finished": self._handle_table_edit_finished,
             "on_reset_requested": self.recipe_panel.reset,
         })
-    
-    def _refresh_dashboard(self) -> None:
-        if not hasattr(self, "card_recipe") or not hasattr(self, "header_subtitle"):
+
+    def _handle_table_edit_finished(self) -> None:
+        """테이블 편집 완료 시 저장 요청(버튼 클릭 우회 금지)."""
+        if not self.mixing_page_refs.save_btn.isEnabled():
             return
-        recipe, amount, worker, date = self._collect_kpi_data()
-        self._update_kpi_cards(recipe, amount, worker, date)
-        self._update_header_subtitle(worker, date)
-
-    def _collect_kpi_data(self) -> Tuple[str, float, str, str]:
-        recipe = self.recipe_panel.get_recipe_name() or "-"
-        amount = self.recipe_panel.get_amount()
-        worker = self.work_info_panel.get_worker_name() or "-"
-        date = self.work_info_panel.date_edit.date().toString("yyyy-MM-dd")
-        return recipe, amount, worker, date
-
-    def _update_kpi_cards(self, recipe: str, amount: float, worker: str, date: str) -> None:
-        self.card_recipe["card"].update_value(recipe, 100 if recipe != "-" else 0)
-        self.card_amount["card"].update_value(f"{amount:,.2f}", 100 if amount > 0 else 0)
-        self.card_worker["value"].setText(f"{worker} · {date}")
-
-    def _update_header_subtitle(self, worker: str, date: str) -> None:
-        self.header_subtitle.setText(f"{worker} · {date}")
-
+        self._save_record()
+    
     def _setup_statusbar(self):
         """상태바 초기화"""
         tol = config.tolerance
@@ -280,16 +531,13 @@ class MainWindow(FluentWindow):
         self._set_status_message(f"기본 스케일: {scale} | 허용오차: ±{tol}")
         
         self.google_sheets_status_label = QLabel("")
-        self.statusBar().addPermanentWidget(self.google_sheets_status_label)
+        self.mixing_status_bar.addPermanentWidget(self.google_sheets_status_label)
         self.google_sheets_status_label.setStyleSheet("padding: 0 5px;")
         self.status_controller = StatusController(
-            status_bar=self.statusBar(),
+            status_bar=self.mixing_status_bar,
             google_sheets_label=self.google_sheets_status_label,
             google_sheets_config=self.data_manager.google_sheets_config,
         )
-
-    def statusBar(self):
-        return self._status_bar
 
 
 
@@ -310,13 +558,11 @@ class MainWindow(FluentWindow):
     def _set_status_message(self, message: str) -> None:
         if hasattr(self, "status_controller"):
             self.status_controller.set_message(message)
-        else:
-            self.statusBar().showMessage(message)
+        elif hasattr(self, "mixing_status_bar"):
+            self.mixing_status_bar.showMessage(message)
 
     def _request_worker_and_refresh(self):
-        worker = self.work_info_panel.request_worker_input(initial=False)
-        if worker:
-            self._refresh_dashboard()
+        self.work_info_panel.request_worker_input(initial=False)
 
     def _clear_table(self):
         """테이블 자재LOT 및 실제배합 입력값 초기화"""
@@ -383,9 +629,10 @@ class MainWindow(FluentWindow):
         self._set_save_button_state(valid)
 
     def _set_save_button_state(self, enabled: bool) -> None:
-        self.save_btn.setEnabled(enabled)
-        self.save_btn.setText("배합 저장")
-        self.save_btn.setStyleSheet(UIStyles.get_primary_button_style())
+        save_btn = self.mixing_page_refs.save_btn
+        save_btn.setEnabled(enabled)
+        save_btn.setText("배합 저장")
+        save_btn.setStyleSheet(UIStyles.get_primary_button_style())
 
     def _handle_recipe_cleared(self) -> None:
         self.material_panel.clear_items()
