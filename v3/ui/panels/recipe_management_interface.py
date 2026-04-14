@@ -19,10 +19,10 @@ from ui.components import StyledButton
 class RecipeManagementInterface(QWidget):
     """DHR 레시피 관리 패널"""
     
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, dhr_db=None):
         super().__init__(parent)
         self.setObjectName("RecipeManagementInterface")
-        self.db = DhrDatabaseManager()
+        self.db = dhr_db or DhrDatabaseManager()
         self.current_recipe_id = None
         
         self._init_ui()

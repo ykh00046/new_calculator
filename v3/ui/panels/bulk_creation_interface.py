@@ -4,11 +4,8 @@ DHR 일괄 생성 인터페이스 (사이드바 메뉴용)
 """
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel,
-    QTableWidgetItem, QHeaderView, QMessageBox, QTabWidget, QApplication, QScrollArea, QDialog
+    QTableWidgetItem, QHeaderView, QMessageBox, QTabWidget, QScrollArea, QDialog
 )
-from PySide6.QtCore import Qt, QDate, QTime, QSize
-from PySide6.QtGui import QColor, QKeySequence
-from datetime import datetime, timedelta
 
 from models.lot_manager import LotManager
 from config.settings import LOT_FILE
@@ -16,31 +13,26 @@ from ui.components import StyledButton, create_group_box, center_window
 from ui.styles import UIStyles, UITheme
 from ui.panels.scan_effects_panel import ScanEffectsPanel
 from ui.panels.signature_panel import SignaturePanel
-from ui.widgets.pasteable_table import BasePasteableTableWidget, PasteableTableWidget, PasteableSimpleTableWidget
+from ui.widgets.pasteable_table import PasteableTableWidget, PasteableSimpleTableWidget
 from config.config_manager import config
 from utils.logger import logger
 from utils.bulk_helpers import parse_date_cell, parse_bulk_entries, get_materials_from_table
 from models.dhr_database import DhrDatabaseManager
 from models.dhr_bulk_generator import DhrBulkGenerator
-from qfluentwidgets import (
-    CardWidget, LineEdit, DateEdit, TimeEdit, CheckBox, TableWidget
-)
+from qfluentwidgets import CardWidget, LineEdit, CheckBox
 
-
-
-    READONLY_COLUMNS = [3]  # 이론계량
 
 class BulkCreationInterface(QScrollArea):
     """DHR 일괄 생성 패널"""
 
-    def __init__(self, parent=None):
+    def __init__(self, parent=None, dhr_db=None, lot_manager=None):
         super().__init__(parent)
         self.setWidgetResizable(True)
         self.setObjectName("BulkCreationInterface")
         self.setStyleSheet("QScrollArea { border: none; background-color: transparent; }")
         
-        self.dhr_db = DhrDatabaseManager()
-        self.lot_manager = LotManager(LOT_FILE)
+        self.dhr_db = dhr_db or DhrDatabaseManager()
+        self.lot_manager = lot_manager or LotManager(LOT_FILE)
         
         self._init_ui()
 
@@ -170,14 +162,19 @@ class BulkCreationInterface(QScrollArea):
 
         # 실행 버튼
         action_layout = QHBoxLayout()
+
+        record_view_btn = StyledButton("기록 조회", "secondary")
+        record_view_btn.clicked.connect(self._open_record_view)
+        action_layout.addWidget(record_view_btn)
+
         action_layout.addStretch()
-        
+
         generate_btn = StyledButton("일괄 생성 및 출력", "success")
         generate_btn.clicked.connect(self._bulk_create)
         generate_btn.setMinimumHeight(45)
         generate_btn.setMinimumWidth(200)
         generate_btn.setStyleSheet("font-size: 16px; font-weight: bold;")
-        
+
         action_layout.addWidget(generate_btn)
         root.addLayout(action_layout)
 
@@ -199,6 +196,14 @@ class BulkCreationInterface(QScrollArea):
     def _remove_mat_row(self):
         row = self.mat_table.currentRow()
         if row >= 0: self.mat_table.removeRow(row)
+
+    def _open_record_view(self):
+        """DHR 기록 조회 다이얼로그 열기"""
+        from ui.dhr_record_view_dialog import DhrRecordViewDialog
+        effects_params = self.scan_effects_panel.get_data()
+        dialog = DhrRecordViewDialog(effects_params, self)
+        center_window(dialog)
+        dialog.exec()
 
     def _open_recipe_loader(self):
         from ui.dhr_recipe_loader_dialog import DhrRecipeLoaderDialog
@@ -260,7 +265,19 @@ class BulkCreationInterface(QScrollArea):
                 signature_options=self.signature_panel.get_data(),
                 export=True
             )
-            QMessageBox.information(self, "완료", f"일괄 생성이 완료되었습니다. (총 {count}건)")
+            export_failures = getattr(generator, "last_export_failures", [])
+            if export_failures:
+                preview = "\n".join(export_failures[:3])
+                more = ""
+                if len(export_failures) > 3:
+                    more = f"\n... (+{len(export_failures) - 3} more)"
+                QMessageBox.warning(
+                    self,
+                    "Partial Success",
+                    f"DB records saved: {count}\nExport failures: {len(export_failures)}\n\n{preview}{more}",
+                )
+            else:
+                QMessageBox.information(self, "Done", f"Bulk creation completed. (Total {count})")
         except Exception as e:
             logger.error(f"DHR 일괄 생성 실패: {e}")
             QMessageBox.critical(self, "오류", f"일괄 생성 중 오류가 발생했습니다.\n{e}")

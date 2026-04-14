@@ -92,6 +92,16 @@ class ScanEffectsPanel(QWidget):
             "brightness_factor": self.brightness_spin.value()
         }
 
+    def set_data(self, data: dict) -> None:
+        """외부 상태로부터 파라미터를 적용합니다."""
+        if not data:
+            return
+        self.dpi_spin.setValue(int(data.get("dpi", self.dpi_spin.value())))
+        self.blur_spin.setValue(float(data.get("blur_radius", self.blur_spin.value())))
+        self.noise_spin.setValue(int(data.get("noise_range", self.noise_spin.value())))
+        self.contrast_spin.setValue(float(data.get("contrast_factor", self.contrast_spin.value())))
+        self.brightness_spin.setValue(float(data.get("brightness_factor", self.brightness_spin.value())))
+
     def _save_as_default(self):
         """현재 설정을 기본값으로 저장"""
         try:

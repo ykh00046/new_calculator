@@ -34,3 +34,11 @@ class SignaturePanel(QWidget):
             'review': self.chk_review.isChecked(),
             'approve': self.chk_approve.isChecked(),
         }
+
+    def set_data(self, data: dict) -> None:
+        """외부 상태로부터 서명 옵션을 적용합니다."""
+        if not data:
+            return
+        self.chk_charge.setChecked(bool(data.get("charge", self.chk_charge.isChecked())))
+        self.chk_review.setChecked(bool(data.get("review", self.chk_review.isChecked())))
+        self.chk_approve.setChecked(bool(data.get("approve", self.chk_approve.isChecked())))
