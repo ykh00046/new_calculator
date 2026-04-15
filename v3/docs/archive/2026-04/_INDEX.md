@@ -46,6 +46,15 @@
 | [code_quality_phase2.analysis.md](./code_quality_phase2/code_quality_phase2.analysis.md) | 03-analysis/ | Analysis (Match Rate 100%) |
 | [code_quality_phase2.report.md](./code_quality_phase2/code_quality_phase2.report.md) | 04-report/features/ | Report |
 
+## PDCA #9 (Release Pipeline Hardening)
+
+| 문서 | 원래 위치 | 단계 |
+| --- | --- | --- |
+| [release_pipeline_hardening.plan.md](./release_pipeline_hardening/release_pipeline_hardening.plan.md) | 01-plan/features/ | Plan |
+| [release_pipeline_hardening.design.md](./release_pipeline_hardening/release_pipeline_hardening.design.md) | 02-design/features/ | Design |
+| [release_pipeline_hardening.analysis.md](./release_pipeline_hardening/release_pipeline_hardening.analysis.md) | 03-analysis/ | Analysis (Match Rate 100%) |
+| [release_pipeline_hardening.report.md](./release_pipeline_hardening/release_pipeline_hardening.report.md) | 04-report/features/ | Report |
+
 ## Orphan Docs (사후 기록)
 
 - [ui_theme_unification.plan.md](./orphan_docs/ui_theme_unification.plan.md) — UIStyles/UITheme 시스템 이미 구현됨
