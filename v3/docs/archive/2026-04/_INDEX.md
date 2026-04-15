@@ -37,6 +37,15 @@
 | [mixing_improvements.design.md](./mixing_improvements/mixing_improvements.design.md) | Design |
 | [mixing_improvements.report.md](./mixing_improvements/mixing_improvements.report.md) | Report (retroactive) |
 
+## PDCA #8 (Code Quality Phase 2 — Working Tree Hygiene)
+
+| 문서 | 원래 위치 | 단계 |
+| --- | --- | --- |
+| [code_quality_phase2.plan.md](./code_quality_phase2/code_quality_phase2.plan.md) | 01-plan/features/ | Plan |
+| [code_quality_phase2.design.md](./code_quality_phase2/code_quality_phase2.design.md) | 02-design/features/ | Design |
+| [code_quality_phase2.analysis.md](./code_quality_phase2/code_quality_phase2.analysis.md) | 03-analysis/ | Analysis (Match Rate 100%) |
+| [code_quality_phase2.report.md](./code_quality_phase2/code_quality_phase2.report.md) | 04-report/features/ | Report |
+
 ## Orphan Docs (사후 기록)
 
 - [ui_theme_unification.plan.md](./orphan_docs/ui_theme_unification.plan.md) — UIStyles/UITheme 시스템 이미 구현됨
