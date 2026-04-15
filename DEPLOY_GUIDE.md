@@ -20,13 +20,37 @@
 
 `resources/`는 템플릿, 레시피, 서명 이미지 등 런타임 자산을 포함하므로 실행 파일과 같은 패키지 안에 함께 배포해야 합니다.
 
-## 릴리스 절차
+## 릴리스 절차 (권장: 단일 명령)
 
 1. 루트 가상환경 또는 배포용 Python 환경을 준비합니다.
-2. `v3/`에서 `build.py`를 실행해 `dist/DHR_Generator.exe`를 생성합니다.
-3. 같은 위치에서 `deploy.py`를 실행해 배포 폴더와 ZIP을 생성합니다.
-4. `check_release_artifacts.py`를 실행해 exe/zip 최신성과 ZIP 내부 구성을 검증합니다.
-5. 검증 통과 후 생성된 ZIP 파일을 사용자에게 전달합니다.
+2. `v3/` 디렉터리에서 `release.py` 한 번으로 빌드 → 패키지 → 검증을 실행합니다.
+3. 종료 코드 `0`을 확인한 뒤 생성된 ZIP 파일을 사용자에게 전달합니다.
+
+```bash
+cd v3
+../.venv/Scripts/python.exe release.py
+```
+
+**종료 코드 규약**
+
+| 코드 | 의미 |
+| --- | --- |
+| `0` | 전체 파이프라인 성공 |
+| `10` | build 단계 실패 |
+| `20` | deploy(패키지) 단계 실패 |
+| `30` | 산출물 검증 실패 |
+
+### 부분 실행 (고급)
+
+기존 산출물을 재사용해 일부 단계만 다시 수행할 수 있습니다.
+
+```bash
+cd v3
+../.venv/Scripts/python.exe release.py --skip-build     # dist 재사용
+../.venv/Scripts/python.exe release.py --skip-package   # 최신 ZIP 재사용
+```
+
+또는 각 스크립트를 단독으로 실행해도 동작은 동일하게 유지됩니다.
 
 ```bash
 cd v3
