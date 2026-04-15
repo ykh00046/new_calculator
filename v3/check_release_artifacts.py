@@ -11,6 +11,7 @@ from pathlib import Path
 
 APP_NAME = "DHR_Generator"
 RELEASE_VERSION = "v3.0.0"
+MIN_EXE_SIZE_MB = 10
 ZIP_PATTERN = re.compile(
     rf"^{re.escape(APP_NAME)}_{re.escape(RELEASE_VERSION)}_(\d{{8}})\.zip$"
 )
@@ -60,7 +61,14 @@ def main() -> int:
 
     if exe_path.exists():
         exe_mtime = exe_path.stat().st_mtime
+        exe_size_mb = exe_path.stat().st_size / (1024 * 1024)
         print(f"[PASS] EXE present: {format_path(exe_path)}")
+        if exe_size_mb < MIN_EXE_SIZE_MB:
+            failures.append(
+                f"EXE 크기가 하한({MIN_EXE_SIZE_MB}MB) 미만입니다: {exe_size_mb:.1f}MB"
+            )
+        else:
+            print(f"[PASS] EXE size OK: {exe_size_mb:.1f} MB")
     else:
         exe_mtime = None
         failures.append(f"실행 파일 누락: {format_path(exe_path)}")
