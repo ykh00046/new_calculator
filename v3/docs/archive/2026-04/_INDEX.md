@@ -55,6 +55,13 @@
 | [release_pipeline_hardening.analysis.md](./release_pipeline_hardening/release_pipeline_hardening.analysis.md) | 03-analysis/ | Analysis (Match Rate 100%) |
 | [release_pipeline_hardening.report.md](./release_pipeline_hardening/release_pipeline_hardening.report.md) | 04-report/features/ | Report |
 
+## PDCA #10 (Attribute Init Order Hardening — 경량)
+
+| 문서 | 단계 |
+| --- | --- |
+| [attribute_init_order_hardening.plan.md](./attribute_init_order_hardening/attribute_init_order_hardening.plan.md) | Plan |
+| [attribute_init_order_hardening.report.md](./attribute_init_order_hardening/attribute_init_order_hardening.report.md) | Report (Design/Analysis 생략, 1커밋 핫픽스) |
+
 ## Orphan Docs (사후 기록)
 
 - [ui_theme_unification.plan.md](./orphan_docs/ui_theme_unification.plan.md) — UIStyles/UITheme 시스템 이미 구현됨
@@ -63,6 +70,8 @@
 ## 핵심 성과
 
 - **MainWindow LOC**: 675 → 291 (−57%, 목표 <300 달성)
-- **Match Rate**: 94% (HIGH/MEDIUM Gap 전부 해소)
-- **테스트**: 27/27 전 사이클 통과
-- **아카이브 일자**: 2026-04-14
+- **Match Rate**: PDCA #7 94% / #8·#9 100% (HIGH/MEDIUM Gap 전부 해소)
+- **테스트**: PDCA #9 이후 33/33 전 사이클 통과
+- **릴리즈**: `python v3/release.py` 단일 명령 파이프라인 확립
+- **기동 안정화**: PDCA #10에서 MainWindow 초기화 순서 경화 (AttributeError 제거)
+- **아카이브 최종 갱신**: 2026-04-17
