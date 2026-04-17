@@ -62,6 +62,15 @@
 | [attribute_init_order_hardening.plan.md](./attribute_init_order_hardening/attribute_init_order_hardening.plan.md) | Plan |
 | [attribute_init_order_hardening.report.md](./attribute_init_order_hardening/attribute_init_order_hardening.report.md) | Report (Design/Analysis 생략, 1커밋 핫픽스) |
 
+## PDCA #11 (Manual Input QA Coverage)
+
+| 문서 | 원래 위치 | 단계 |
+| --- | --- | --- |
+| [manual_input_qa_coverage.plan.md](./manual_input_qa_coverage/manual_input_qa_coverage.plan.md) | 01-plan/features/ | Plan |
+| [manual_input_qa_coverage.design.md](./manual_input_qa_coverage/manual_input_qa_coverage.design.md) | 02-design/features/ | Design |
+| [manual_input_qa_coverage.analysis.md](./manual_input_qa_coverage/manual_input_qa_coverage.analysis.md) | 03-analysis/ | Analysis (Match Rate 100%) |
+| [manual_input_qa_coverage.report.md](./manual_input_qa_coverage/manual_input_qa_coverage.report.md) | 04-report/features/ | Report |
+
 ## Orphan Docs (사후 기록)
 
 - [ui_theme_unification.plan.md](./orphan_docs/ui_theme_unification.plan.md) — UIStyles/UITheme 시스템 이미 구현됨
@@ -70,8 +79,9 @@
 ## 핵심 성과
 
 - **MainWindow LOC**: 675 → 291 (−57%, 목표 <300 달성)
-- **Match Rate**: PDCA #7 94% / #8·#9 100% (HIGH/MEDIUM Gap 전부 해소)
-- **테스트**: PDCA #9 이후 33/33 전 사이클 통과
+- **Match Rate**: PDCA #7 94% / #8·#9·#10·#11 100% (HIGH/MEDIUM Gap 전부 해소)
+- **테스트**: PDCA #9 이후 33/33 → **PDCA #11 이후 52/52** (+19, +57.6%)
 - **릴리즈**: `python v3/release.py` 단일 명령 파이프라인 확립
 - **기동 안정화**: PDCA #10에서 MainWindow 초기화 순서 경화 (AttributeError 제거)
+- **QA 커버리지**: PDCA #11에서 `manual_input_interface.py` Critical 리팩토링 자동화 안전망 확보
 - **아카이브 최종 갱신**: 2026-04-17
