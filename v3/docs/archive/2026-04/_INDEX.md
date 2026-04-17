@@ -71,6 +71,15 @@
 | [manual_input_qa_coverage.analysis.md](./manual_input_qa_coverage/manual_input_qa_coverage.analysis.md) | 03-analysis/ | Analysis (Match Rate 100%) |
 | [manual_input_qa_coverage.report.md](./manual_input_qa_coverage/manual_input_qa_coverage.report.md) | 04-report/features/ | Report |
 
+## PDCA #12 (Manual Input Save/Export E2E)
+
+| 문서 | 원래 위치 | 단계 |
+| --- | --- | --- |
+| [manual_input_save_export_e2e.plan.md](./manual_input_save_export_e2e/manual_input_save_export_e2e.plan.md) | 01-plan/features/ | Plan |
+| [manual_input_save_export_e2e.design.md](./manual_input_save_export_e2e/manual_input_save_export_e2e.design.md) | 02-design/features/ | Design |
+| [manual_input_save_export_e2e.analysis.md](./manual_input_save_export_e2e/manual_input_save_export_e2e.analysis.md) | 03-analysis/ | Analysis (Match Rate 100%) |
+| [manual_input_save_export_e2e.report.md](./manual_input_save_export_e2e/manual_input_save_export_e2e.report.md) | 04-report/features/ | Report |
+
 ## Orphan Docs (사후 기록)
 
 - [ui_theme_unification.plan.md](./orphan_docs/ui_theme_unification.plan.md) — UIStyles/UITheme 시스템 이미 구현됨
@@ -79,9 +88,10 @@
 ## 핵심 성과
 
 - **MainWindow LOC**: 675 → 291 (−57%, 목표 <300 달성)
-- **Match Rate**: PDCA #7 94% / #8·#9·#10·#11 100% (HIGH/MEDIUM Gap 전부 해소)
-- **테스트**: PDCA #9 이후 33/33 → **PDCA #11 이후 52/52** (+19, +57.6%)
+- **Match Rate**: PDCA #7 94% / #8·#9·#10·#11·#12 100% (HIGH/MEDIUM Gap 전부 해소)
+- **테스트**: PDCA #9 33/33 → PDCA #11 52/52 → **PDCA #12 이후 65/65** (+32, +97%)
 - **릴리즈**: `python v3/release.py` 단일 명령 파이프라인 확립
 - **기동 안정화**: PDCA #10에서 MainWindow 초기화 순서 경화 (AttributeError 제거)
 - **QA 커버리지**: PDCA #11에서 `manual_input_interface.py` Critical 리팩토링 자동화 안전망 확보
-- **아카이브 최종 갱신**: 2026-04-17
+- **Save/Export E2E**: PDCA #12에서 `_save_and_export` 오케스트레이션·실 템플릿 셀 매핑·에러 경로 3종 자동화
+- **아카이브 최종 갱신**: 2026-04-17 (PDCA #12)
