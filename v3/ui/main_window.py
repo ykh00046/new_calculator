@@ -47,10 +47,13 @@ class MainWindow(FluentWindow):
 
     def __init__(self):
         super().__init__()
-        
+        # eventFilter가 super().__init__() 이후 Qt 내부 이벤트(setWindowFlags 등)에서
+        # 선(先) 호출될 수 있어, 속성 미존재 AttributeError를 막기 위해 최우선 할당.
+        self.sidebar_hover_controller = SidebarHoverController(self)
+
         # 테마 설정 (UI 생성 전)
         setTheme(Theme.DARK)
-        
+
         self.setWindowTitle("DHR 배합 프로그램")
         self.resize(1200, 800) # Window size increased
         # 창 항상 맨 위 설정
@@ -59,7 +62,6 @@ class MainWindow(FluentWindow):
 
         self.services = self._create_services()
         self.data_manager = self.services.data_manager
-        self.sidebar_hover_controller = SidebarHoverController(self)
         # self.worker_name = None # WorkInfoPanel에서 관리됨
 
         self._init_ui()
@@ -98,7 +100,9 @@ class MainWindow(FluentWindow):
         self.sidebar_hover_controller.init_behavior()
 
     def eventFilter(self, obj, e):
-        self.sidebar_hover_controller.handle_filter_event(obj, e)
+        controller = getattr(self, "sidebar_hover_controller", None)
+        if controller is not None:
+            controller.handle_filter_event(obj, e)
         return super().eventFilter(obj, e)
 
     def _init_ui(self):
